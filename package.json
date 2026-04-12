@@ -9,7 +9,9 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "install-hooks": "node scripts/install-git-hooks.mjs",
+    "prepare": "npm run install-hooks"
   },
   "engines": {
     "node": ">=20.0.0"
