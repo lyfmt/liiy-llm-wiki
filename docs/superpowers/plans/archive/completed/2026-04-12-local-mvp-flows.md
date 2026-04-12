@@ -1,5 +1,8 @@
 # Local MVP Flows Implementation Plan
 
+> **Archived on 2026-04-12:** This umbrella plan has been fully executed and is kept for historical traceability. See `docs/implementation-report.html` and `docs/demo-report.html` for the resulting baseline.
+
+
 > **Retained in active plans:** This is the final executed umbrella plan for the current local MVP baseline.
 
 

@@ -1,5 +1,8 @@
 # Quality Gates and CI Implementation Plan
 
+> **Archived on 2026-04-12:** This quality-gates plan has been fully executed and is kept for historical traceability. The implemented repository quality gates now live in the main workspace configuration and CI workflow.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a minimal but real pre-submit quality gate by introducing linting and a CI workflow that runs install, lint, test, typecheck, and build on the main branch and pull requests.
