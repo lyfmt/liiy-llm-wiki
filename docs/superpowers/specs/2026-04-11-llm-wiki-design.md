@@ -6,10 +6,10 @@
 - 主题：本地优先的 LLM Wiki Agent 系统设计
 - 目标：产出一份可进入实现规划阶段的设计规格，明确系统目标、架构边界、核心对象、运行模型与首版范围
 - 参考输入：
-  - `rag/karpathy-llm-wiki-zh.md`
-  - `pi-mono-stu/packages/ai/README.md`
-  - `pi-mono-stu/packages/agent/README.md`
-  - `pi-mono-stu/packages/coding-agent/README.md`
+  - `~/src/study/rag/karpathy-llm-wiki-zh.md`
+  - `~/src/study/pi-mono-stu/packages/ai/README.md`
+  - `~/src/study/pi-mono-stu/packages/agent/README.md`
+  - `~/src/study/pi-mono-stu/packages/coding-agent/README.md`
 
 ## 2. 项目目标
 
