@@ -1,5 +1,8 @@
 # Source Manifest Storage Implementation Plan
 
+> **Archived on 2026-04-12:** This completed slice plan is kept for historical traceability and has been removed from the active plans directory.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the next MVP slice by persisting raw-source metadata as recoverable source manifest records under `state/` while preserving `raw/` as read-only input.

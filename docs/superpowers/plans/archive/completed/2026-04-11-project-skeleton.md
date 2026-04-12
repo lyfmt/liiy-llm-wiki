@@ -1,5 +1,8 @@
 # Project Skeleton Implementation Plan
 
+> **Archived on 2026-04-12:** This completed slice plan is kept for historical traceability and has been removed from the active plans directory.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first MVP slice: an idempotent TypeScript bootstrap that creates the `raw/`, `wiki/`, `schema/`, `state/`, and `docs/superpowers/specs/` project skeleton plus starter Markdown files from a single entrypoint.

@@ -1,5 +1,8 @@
 # Local MVP Flows Implementation Plan
 
+> **Retained in active plans:** This is the final executed umbrella plan for the current local MVP baseline.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Complete the remaining local MVP gaps by finishing accepted-raw ingest, executable review-gate checks, and a basic lint flow on top of the already-built storage and query slices.

@@ -1,5 +1,8 @@
 # Minimal Query Flow Implementation Plan
 
+> **Archived on 2026-04-12:** This completed slice plan is kept for historical traceability and has been removed from the active plans directory.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first user-visible MVP flow by answering a query from persisted wiki pages and optionally saving a reusable query page back into `wiki/queries/`.

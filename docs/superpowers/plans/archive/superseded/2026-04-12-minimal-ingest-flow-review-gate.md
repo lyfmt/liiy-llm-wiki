@@ -1,5 +1,8 @@
 # Minimal Ingest Flow with Review Gate Implementation Plan
 
+> **Deprecated on 2026-04-12:** This plan was superseded by `docs/superpowers/plans/2026-04-12-local-mvp-flows.md` and is kept only for historical traceability.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a deterministic local ingest flow that reads accepted raw markdown, updates wiki pages without oscillating on repeat ingest, and flags high-impact changes through a review gate.
