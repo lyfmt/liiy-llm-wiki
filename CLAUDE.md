@@ -112,7 +112,7 @@ npm run build
 这个项目不是固定流水线，而是**单主 Knowledge Agent + 动态计划**：
 
 - 用户发起自然语言请求
-- 系统识别当前意图（例如 ingest / query / lint / mixed）
+- 系统识别当前意图（例如 ingest / query / lint）
 - agent 生成本次临时计划
 - agent 调用知识工具执行
 - 系统根据结果修订计划、落盘状态、决定是否进入 review gate
