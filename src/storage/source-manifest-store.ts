@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -26,6 +26,52 @@ export async function loadSourceManifest(root: string, id: string): Promise<Sour
   const record = assertSourceManifestRecord(await readRequiredJson(filePath, `${id}.json`), `${id}.json`);
 
   return createSourceManifest(record);
+}
+
+export async function findAcceptedSourceManifestByPath(root: string, rawPath: string): Promise<SourceManifest> {
+  if (!isRawPath(rawPath)) {
+    throw new Error(`Invalid source manifest path lookup: ${rawPath}`);
+  }
+
+  const manifests = await listSourceManifests(root);
+  const matches = manifests.filter((manifest) => manifest.status === 'accepted' && manifest.path === rawPath);
+
+  if (matches.length === 0) {
+    throw new Error(`No accepted source manifest found for path: ${rawPath}`);
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Ambiguous accepted source manifest for path ${rawPath}: ${matches.map((manifest) => manifest.id).join(', ')}`
+    );
+  }
+
+  return matches[0]!;
+}
+
+async function listSourceManifests(root: string): Promise<SourceManifest[]> {
+  const manifestDirectory = path.dirname(buildSourceManifestPath(root, 'placeholder-id'));
+
+  let entries: string[];
+
+  try {
+    entries = await readdir(manifestDirectory);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const manifestIds = entries.filter((entry) => entry.endsWith('.json')).map((entry) => entry.slice(0, -'.json'.length));
+  const manifests: SourceManifest[] = [];
+
+  for (const manifestId of manifestIds.sort()) {
+    manifests.push(await loadSourceManifest(root, manifestId));
+  }
+
+  return manifests;
 }
 
 function assertSourceManifestRecord(

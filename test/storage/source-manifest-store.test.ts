@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { buildSourceManifestPath } from '../../src/storage/source-manifest-paths.js';
 import {
+  findAcceptedSourceManifestByPath,
   loadSourceManifest,
   saveSourceManifest
 } from '../../src/storage/source-manifest-store.js';
@@ -264,6 +265,170 @@ describe('source manifest storage', () => {
 
       await expect(loadSourceManifest(root, 'src-001')).rejects.toThrow(
         'Invalid source manifest: invalid src-001.json'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('finds the unique accepted manifest for an exact raw path', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Accepted Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:accepted',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/other.md',
+          title: 'Other Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:other',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      await expect(findAcceptedSourceManifestByPath(root, 'raw/accepted/design.md')).resolves.toEqual(
+        expect.objectContaining({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          status: 'accepted'
+        })
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores non-accepted manifests with the same raw path', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Rejected Design',
+          type: 'markdown',
+          status: 'rejected',
+          hash: 'sha256:rejected',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/design.md',
+          title: 'Accepted Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:accepted',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      await expect(findAcceptedSourceManifestByPath(root, 'raw/accepted/design.md')).resolves.toEqual(
+        expect.objectContaining({
+          id: 'src-002',
+          status: 'accepted'
+        })
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when no accepted manifest matches the raw path', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/other.md',
+          title: 'Other Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:other',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      await expect(findAcceptedSourceManifestByPath(root, 'raw/accepted/design.md')).rejects.toThrow(
+        'No accepted source manifest found for path: raw/accepted/design.md'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when multiple accepted manifests match the same raw path', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Design A',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:a',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/design.md',
+          title: 'Design B',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:b',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      await expect(findAcceptedSourceManifestByPath(root, 'raw/accepted/design.md')).rejects.toThrow(
+        'Ambiguous accepted source manifest for path raw/accepted/design.md: src-001, src-002'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'wiki/topics/not-raw.md',
+    'raw/../wiki/topic.md',
+    'raw/subdir/../../schema/rules.json',
+    './raw/inbox/design.md',
+    'schema/../raw/inbox/design.md',
+    'raw/inbox/../design.md',
+    'raw\\..\\wiki\\topic.md',
+    'raw/inbox\\..\\..\\wiki/topic.md'
+  ])('rejects invalid raw path lookup input: %s', async (rawPath) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await expect(findAcceptedSourceManifestByPath(root, rawPath)).rejects.toThrow(
+        `Invalid source manifest path lookup: ${rawPath}`
       );
     } finally {
       await rm(root, { recursive: true, force: true });

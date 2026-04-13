@@ -1,14 +1,17 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createAssistantMessageEventStream, getModel, type AssistantMessage, type Context, type ToolCall } from '@mariozechner/pi-ai';
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 
+import { bootstrapProject } from '../../src/app/bootstrap-project.js';
 import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
+import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { runRuntimeAgent } from '../../src/runtime/agent-session.js';
 import { saveKnowledgePage } from '../../src/storage/knowledge-page-store.js';
 import { loadRequestRunState } from '../../src/storage/request-run-state-store.js';
+import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
 
 describe('runRuntimeAgent', () => {
   it('runs a PI-backed query flow and persists a single runtime snapshot', async () => {
@@ -48,6 +51,49 @@ describe('runRuntimeAgent', () => {
       await expect(loadRequestRunState(root, 'runtime-agent-001--query-1')).rejects.toThrow(
         'Incomplete request run state: missing checkpoint.json'
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a PI-backed ingest flow from sourcePath and records the ingest outcome', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design.md'),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'ingest raw/accepted/design.md',
+        runId: 'runtime-agent-002',
+        model: getModel('anthropic', 'claude-sonnet-4-20250514'),
+        streamFn: createIngestByPathStream()
+      });
+
+      expect(result.intent).toBe('ingest');
+      expect(result.toolOutcomes).toHaveLength(1);
+      expect(result.toolOutcomes[0]?.toolName).toBe('ingest_source');
+      expect(result.toolOutcomes[0]?.resultMarkdown).toContain('Resolved raw/accepted/design.md');
+      const runState = await loadRequestRunState(root, 'runtime-agent-002');
+      expect(runState.request_run.intent).toBe('ingest');
+      expect(runState.request_run.result_summary).toContain('Resolved raw/accepted/design.md to src-001.');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -111,6 +157,85 @@ function buildToolCallingAssistantMessage(context: Context): AssistantMessage {
         arguments: {
           question,
           persistQueryPage: false
+        }
+      }
+    ],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0
+      }
+    },
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  };
+}
+
+function createIngestByPathStream(): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1 ? buildIngestToolCallingAssistantMessage() : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
+function buildIngestToolCallingAssistantMessage(): AssistantMessage {
+  return {
+    role: 'assistant',
+    content: [
+      {
+        type: 'toolCall',
+        id: 'tool-call-ingest-1',
+        name: 'ingest_source',
+        arguments: {
+          sourcePath: 'raw/accepted/design.md'
         }
       }
     ],

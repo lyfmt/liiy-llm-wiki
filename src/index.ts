@@ -21,7 +21,7 @@ export { listKnowledgePages } from './storage/list-knowledge-pages.js';
 export { loadKnowledgePage, saveKnowledgePage } from './storage/knowledge-page-store.js';
 export type { LoadedKnowledgePage } from './storage/knowledge-page-store.js';
 export { buildSourceManifestPath } from './storage/source-manifest-paths.js';
-export { loadSourceManifest, saveSourceManifest } from './storage/source-manifest-store.js';
+export { findAcceptedSourceManifestByPath, loadSourceManifest, saveSourceManifest } from './storage/source-manifest-store.js';
 export { readRawDocument } from './flows/ingest/read-raw-document.js';
 export { runIngestFlow } from './flows/ingest/run-ingest-flow.js';
 export type { RunIngestFlowInput, RunIngestFlowResult } from './flows/ingest/run-ingest-flow.js';

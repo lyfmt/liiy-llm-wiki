@@ -148,7 +148,7 @@ function createInitialPrompt(userRequest: string, intent: RuntimeIntent): Runtim
 function buildPromptText(userRequest: string, intent: RuntimeIntent): string {
   const toolGuidance =
     intent === 'ingest'
-      ? 'Use ingest_source once the source manifest id is known.'
+      ? 'Use ingest_source with sourceId when known, or sourcePath for explicit raw/accepted/... requests.'
       : intent === 'lint'
         ? 'Use lint_wiki to inspect the wiki and report findings.'
         : intent === 'mixed'

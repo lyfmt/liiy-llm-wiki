@@ -4,6 +4,7 @@ import {
   buildKnowledgePagePath,
   buildRequestRunArtifactPaths,
   buildSourceManifestPath,
+  findAcceptedSourceManifestByPath,
   listKnowledgePages,
   loadKnowledgePage,
   loadRequestRunState,
@@ -47,6 +48,7 @@ describe('package entry storage exports', () => {
 
   it('re-exports the source-manifest storage APIs and public types', () => {
     expect(typeof buildSourceManifestPath).toBe('function');
+    expect(typeof findAcceptedSourceManifestByPath).toBe('function');
     expect(typeof saveSourceManifest).toBe('function');
     expect(typeof loadSourceManifest).toBe('function');
     expect(buildSourceManifestPath('/tmp/llm-wiki-liiy', 'src-001')).toBe(
