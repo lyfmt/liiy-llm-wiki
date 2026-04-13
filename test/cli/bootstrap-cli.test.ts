@@ -48,7 +48,9 @@ describe('main', () => {
   });
 
   it('fails fast when the target root is missing', async () => {
-    await expect(main(['node', 'cli.js'])).rejects.toThrow('Usage: node dist/cli.js <project-root>');
+    await expect(main(['node', 'cli.js'])).rejects.toThrow(
+      'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>'
+    );
   });
 });
 
@@ -57,9 +59,13 @@ describe('logDirectExecError', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      logDirectExecError(new Error('Usage: node dist/cli.js <project-root>'));
+      logDirectExecError(
+        new Error('Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>')
+      );
 
-      expect(errorSpy).toHaveBeenCalledWith('Usage: node dist/cli.js <project-root>');
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>'
+      );
     } finally {
       errorSpy.mockRestore();
     }

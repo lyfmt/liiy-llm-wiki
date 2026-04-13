@@ -31,3 +31,5 @@ export { runLintFlow } from './flows/lint/run-lint-flow.js';
 export type { RunLintFlowInput, RunLintFlowResult } from './flows/lint/run-lint-flow.js';
 export { evaluateReviewGate } from './policies/review-gate.js';
 export type { ReviewGateDecision, ReviewGateSignals } from './policies/review-gate.js';
+export { buildIntentPlan, classifyIntent, createRuntimeContext, buildRuntimeSystemPrompt, createRuntimeRunState, runRuntimeAgent, extractRuntimeToolOutcome, createIngestSourceTool, createQueryWikiTool, createLintWikiTool } from './runtime/index.js';
+export type { RuntimeIntent, RuntimeContext, CreateRuntimeContextInput, RuntimeToolOutcome, CreateRuntimeRunStateInput, RunRuntimeAgentInput, RunRuntimeAgentResult, IngestSourceParameters, QueryWikiParameters, LintWikiParameters } from './runtime/index.js';
