@@ -5,6 +5,7 @@ import {
   classifyIntent,
   createRuntimeContext,
   createRuntimeRunState,
+  createFindSourceManifestTool,
   createIngestSourceTool,
   createLintWikiTool,
   createQueryWikiTool,
@@ -13,6 +14,7 @@ import {
 import type {
   CreateRuntimeContextInput,
   CreateRuntimeRunStateInput,
+  FindSourceManifestParameters,
   IngestSourceParameters,
   LintWikiParameters,
   QueryWikiParameters,
@@ -27,6 +29,7 @@ describe('package entry runtime exports', () => {
     expect(typeof buildIntentPlan).toBe('function');
     expect(typeof createRuntimeContext).toBe('function');
     expect(typeof createRuntimeRunState).toBe('function');
+    expect(typeof createFindSourceManifestTool).toBe('function');
     expect(typeof createIngestSourceTool).toBe('function');
     expect(typeof createQueryWikiTool).toBe('function');
     expect(typeof createLintWikiTool).toBe('function');
@@ -37,6 +40,7 @@ describe('package entry runtime exports', () => {
     const stateInput: CreateRuntimeRunStateInput | null = null;
     const toolOutcome: RuntimeToolOutcome | null = null;
     const agentInput: RunRuntimeAgentInput | null = null;
+    const findParams: FindSourceManifestParameters | null = null;
     const ingestParams: IngestSourceParameters | null = null;
     const queryParams: QueryWikiParameters | null = null;
     const lintParams: LintWikiParameters | null = null;
@@ -46,6 +50,7 @@ describe('package entry runtime exports', () => {
     expect(stateInput).toBeNull();
     expect(toolOutcome).toBeNull();
     expect(agentInput).toBeNull();
+    expect(findParams).toBeNull();
     expect(ingestParams).toBeNull();
     expect(queryParams).toBeNull();
     expect(lintParams).toBeNull();

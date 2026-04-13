@@ -7,6 +7,7 @@ import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { buildSourceManifestPath } from '../../src/storage/source-manifest-paths.js';
 import {
   findAcceptedSourceManifestByPath,
+  findAcceptedSourceManifestCandidates,
   loadSourceManifest,
   saveSourceManifest
 } from '../../src/storage/source-manifest-store.js';
@@ -430,6 +431,185 @@ describe('source manifest storage', () => {
       await expect(findAcceptedSourceManifestByPath(root, rawPath)).rejects.toThrow(
         `Invalid source manifest path lookup: ${rawPath}`
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('finds accepted manifest candidates with exact id precedence', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z',
+          tags: ['patch-first']
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/other.md',
+          title: 'Other Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:other',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      const candidates = await findAcceptedSourceManifestCandidates(root, 'src-001');
+      expect(candidates[0]).toEqual(
+        expect.objectContaining({
+          manifest: expect.objectContaining({ id: 'src-001' }),
+          reasons: expect.arrayContaining(['id exact match'])
+        })
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ranks title token overlap ahead of path overlap', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/notes.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/patch-first.md',
+          title: 'Other Topic',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:other',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      const candidates = await findAcceptedSourceManifestCandidates(root, 'patch first design');
+      expect(candidates[0]?.manifest.id).toBe('src-001');
+      expect(candidates[0]?.reasons).toContain('title token overlap');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('includes tag overlap and ignores non-accepted manifests in candidate search', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Design Notes',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z',
+          tags: ['patch-first', 'wiki']
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/patch-first.md',
+          title: 'Patch First Draft',
+          type: 'markdown',
+          status: 'rejected',
+          hash: 'sha256:draft',
+          imported_at: '2026-04-12T00:00:00.000Z',
+          tags: ['patch-first']
+        })
+      );
+
+      const candidates = await findAcceptedSourceManifestCandidates(root, 'patch-first');
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]?.manifest.id).toBe('src-001');
+      expect(candidates[0]?.reasons).toContain('tag token overlap');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns stable ordering for tied accepted candidates', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-002',
+          path: 'raw/accepted/patch-first-b.md',
+          title: 'Patch First',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:b',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/patch-first-a.md',
+          title: 'Patch First',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:a',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      const candidates = await findAcceptedSourceManifestCandidates(root, 'patch first');
+      expect(candidates.map((candidate) => candidate.manifest.id)).toEqual(['src-001', 'src-002']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns an empty candidate list for blank or unmatched queries', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-'));
+
+    try {
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      await expect(findAcceptedSourceManifestCandidates(root, '   ')).resolves.toEqual([]);
+      await expect(findAcceptedSourceManifestCandidates(root, 'unrelated topic')).resolves.toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -8,6 +8,12 @@ import {
 } from '../domain/source-manifest.js';
 import { buildSourceManifestPath } from './source-manifest-paths.js';
 
+export interface SourceManifestCandidate {
+  manifest: SourceManifest;
+  score: number;
+  reasons: string[];
+}
+
 export async function saveSourceManifest(root: string, manifest: SourceManifest): Promise<string> {
   if (!isRawPath(manifest.path)) {
     throw new Error(`Invalid source manifest: invalid ${manifest.id}.json`);
@@ -47,6 +53,31 @@ export async function findAcceptedSourceManifestByPath(root: string, rawPath: st
   }
 
   return matches[0]!;
+}
+
+export async function findAcceptedSourceManifestCandidates(
+  root: string,
+  query: string
+): Promise<SourceManifestCandidate[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery.length === 0) {
+    return [];
+  }
+
+  const acceptedManifests = (await listSourceManifests(root)).filter((manifest) => manifest.status === 'accepted');
+  const queryTokens = tokenize(normalizedQuery);
+  const candidates = acceptedManifests
+    .map((manifest) => scoreManifestCandidate(manifest, normalizedQuery, queryTokens))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => {
+      return (
+        right.score - left.score ||
+        left.manifest.id.localeCompare(right.manifest.id)
+      );
+    });
+
+  return candidates;
 }
 
 async function listSourceManifests(root: string): Promise<SourceManifest[]> {
@@ -131,6 +162,60 @@ function assertSourceManifestRecord(
     tags: value.tags,
     notes: value.notes
   };
+}
+
+function scoreManifestCandidate(
+  manifest: SourceManifest,
+  normalizedQuery: string,
+  queryTokens: string[]
+): SourceManifestCandidate {
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (manifest.id.toLowerCase() === normalizedQuery) {
+    score += 100;
+    reasons.push('id exact match');
+  }
+
+  const titleOverlap = countOverlap(queryTokens, tokenize(manifest.title));
+  if (titleOverlap > 0) {
+    score += titleOverlap * 10;
+    reasons.push('title token overlap');
+  }
+
+  const pathOverlap = countOverlap(queryTokens, tokenize(manifest.path));
+  if (pathOverlap > 0) {
+    score += pathOverlap * 5;
+    reasons.push('path token overlap');
+  }
+
+  const tagOverlap = countOverlap(queryTokens, manifest.tags.flatMap((tag) => tokenize(tag)));
+  if (tagOverlap > 0) {
+    score += tagOverlap * 3;
+    reasons.push('tag token overlap');
+  }
+
+  return {
+    manifest,
+    score,
+    reasons
+  };
+}
+
+function countOverlap(queryTokens: string[], candidateTokens: string[]): number {
+  if (queryTokens.length === 0 || candidateTokens.length === 0) {
+    return 0;
+  }
+
+  const candidateSet = new Set(candidateTokens);
+  return [...new Set(queryTokens)].filter((token) => candidateSet.has(token)).length;
+}
+
+function tokenize(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

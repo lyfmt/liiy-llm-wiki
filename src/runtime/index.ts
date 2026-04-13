@@ -7,6 +7,8 @@ export { createRuntimeRunState } from './request-run-state.js';
 export type { RuntimeToolOutcome, CreateRuntimeRunStateInput } from './request-run-state.js';
 export { runRuntimeAgent, extractRuntimeToolOutcome } from './agent-session.js';
 export type { RunRuntimeAgentInput, RunRuntimeAgentResult } from './agent-session.js';
+export { createFindSourceManifestTool } from './tools/find-source-manifest.js';
+export type { FindSourceManifestParameters } from './tools/find-source-manifest.js';
 export { createIngestSourceTool } from './tools/ingest-source.js';
 export type { IngestSourceParameters } from './tools/ingest-source.js';
 export { createQueryWikiTool } from './tools/query-wiki.js';

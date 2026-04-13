@@ -7,6 +7,7 @@ import { buildIntentPlan, classifyIntent, type RuntimeIntent } from './intent-cl
 import { createRuntimeContext } from './runtime-context.js';
 import { createRuntimeRunState, type RuntimeToolOutcome } from './request-run-state.js';
 import { buildRuntimeSystemPrompt } from './system-prompt.js';
+import { createFindSourceManifestTool } from './tools/find-source-manifest.js';
 import { createIngestSourceTool } from './tools/ingest-source.js';
 import { createLintWikiTool } from './tools/lint-wiki.js';
 import { createQueryWikiTool } from './tools/query-wiki.js';
@@ -123,11 +124,12 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
 function buildToolsForIntent(intent: RuntimeIntent, runtimeContext: ReturnType<typeof createRuntimeContext>) {
   switch (intent) {
     case 'ingest':
-      return [createIngestSourceTool(runtimeContext)];
+      return [createFindSourceManifestTool(runtimeContext), createIngestSourceTool(runtimeContext)];
     case 'lint':
       return [createLintWikiTool(runtimeContext)];
     case 'mixed':
       return [
+        createFindSourceManifestTool(runtimeContext),
         createIngestSourceTool(runtimeContext),
         createQueryWikiTool(runtimeContext),
         createLintWikiTool(runtimeContext)
@@ -148,7 +150,7 @@ function createInitialPrompt(userRequest: string, intent: RuntimeIntent): Runtim
 function buildPromptText(userRequest: string, intent: RuntimeIntent): string {
   const toolGuidance =
     intent === 'ingest'
-      ? 'Use ingest_source with sourceId when known, or sourcePath for explicit raw/accepted/... requests.'
+      ? 'Use ingest_source with sourceId when known, or sourcePath for explicit raw/accepted/... requests. For loose source references, call find_source_manifest first and only ingest when there is a unique strongest candidate.'
       : intent === 'lint'
         ? 'Use lint_wiki to inspect the wiki and report findings.'
         : intent === 'mixed'
