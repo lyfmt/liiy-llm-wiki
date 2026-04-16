@@ -1,14 +1,49 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 
 import { createChangeSet, type ChangeSet } from '../domain/change-set.js';
 import { createRequestRun, type RequestRun, type RequestRunStatus } from '../domain/request-run.js';
+import type { PersistedRuntimeToolOutcome } from '../runtime/request-run-state.js';
 import {
   buildRequestRunArtifactPaths,
   type RequestRunArtifactPaths
 } from './request-run-artifact-paths.js';
 
+export type RequestRunEventType =
+  | 'run_started'
+  | 'plan_available'
+  | 'tool_started'
+  | 'tool_finished'
+  | 'evidence_added'
+  | 'draft_updated'
+  | 'run_completed'
+  | 'run_failed';
+
+export interface RequestRunEvent {
+  type: RequestRunEventType;
+  timestamp: string;
+  summary: string;
+  status?: RequestRunStatus;
+  tool_name?: string;
+  tool_call_id?: string;
+  evidence?: string[];
+  touched_files?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface RequestRunTimelineItem {
+  lane: 'user' | 'assistant' | 'tool' | 'system';
+  title: string;
+  summary: string;
+  timestamp?: string;
+  meta?: string;
+}
+
 export interface RequestRunState {
   request_run: RequestRun;
+  tool_outcomes: PersistedRuntimeToolOutcome[];
+  events?: RequestRunEvent[];
+  timeline_items?: RequestRunTimelineItem[];
   draft_markdown: string;
   result_markdown: string;
   changeset: ChangeSet | null;
@@ -34,7 +69,6 @@ export async function saveRequestRunState(
   const paths = buildRequestRunArtifactPaths(root, state.request_run.run_id);
 
   await mkdir(paths.runDirectory, { recursive: true });
-  await rm(paths.checkpoint, { force: true });
   await writeJson(paths.request, {
     run_id: state.request_run.run_id,
     user_request: state.request_run.user_request,
@@ -42,6 +76,9 @@ export async function saveRequestRunState(
   });
   await writeJson(paths.plan, state.request_run.plan);
   await writeJson(paths.evidence, state.request_run.evidence);
+  await writeJson(paths.toolOutcomes, state.tool_outcomes);
+  await writeJson(paths.events, state.events ?? []);
+  await writeJson(paths.timeline, state.timeline_items ?? []);
   await writeFile(paths.draft, state.draft_markdown, 'utf8');
   await writeJson(paths.changeset, state.changeset);
   await writeFile(paths.result, state.result_markdown, 'utf8');
@@ -53,6 +90,23 @@ export async function saveRequestRunState(
   });
 
   return paths;
+}
+
+export async function listRequestRunIds(root: string): Promise<string[]> {
+  const paths = buildRequestRunArtifactPaths(root, 'placeholder-run-id');
+
+  try {
+    return (await readdir(path.dirname(paths.runDirectory), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 export async function loadRequestRunState(root: string, runId: string): Promise<RequestRunState> {
@@ -70,6 +124,18 @@ export async function loadRequestRunState(root: string, runId: string): Promise<
   const evidence = assertStringArray(
     await readRequiredJson<unknown>(paths.evidence, 'evidence.json'),
     'evidence.json'
+  );
+  const tool_outcomes = assertStoredToolOutcomeArray(
+    await readRequiredJson<unknown>(paths.toolOutcomes, 'tool-outcomes.json'),
+    'tool-outcomes.json'
+  );
+  const events = assertStoredRunEventArray(
+    await readOptionalJson<unknown>(paths.events, []),
+    'events.json'
+  );
+  const timeline_items = assertStoredTimelineItemArray(
+    await readOptionalJson<unknown>(paths.timeline, []),
+    'timeline.json'
   );
   const draft_markdown = await readRequiredText(paths.draft, 'draft.md');
   const storedChangeSet = assertStoredChangeSet(
@@ -90,6 +156,9 @@ export async function loadRequestRunState(root: string, runId: string): Promise<
       decisions: checkpoint.decisions,
       result_summary: checkpoint.result_summary
     }),
+    tool_outcomes,
+    events,
+    timeline_items,
     draft_markdown,
     result_markdown,
     changeset: storedChangeSet === null ? null : createChangeSet(storedChangeSet)
@@ -133,7 +202,7 @@ function assertStoredCheckpointRecord(value: unknown, fileName: string): StoredC
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
 
-  if (!['running', 'needs_review', 'done', 'failed'].includes(String(value.status))) {
+  if (!['running', 'needs_review', 'done', 'failed', 'rejected'].includes(String(value.status))) {
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
 
@@ -200,8 +269,172 @@ function assertStoredChangeSet(value: unknown, fileName: string): ChangeSet | nu
   };
 }
 
+function assertStoredToolOutcomeArray(value: unknown, fileName: string): PersistedRuntimeToolOutcome[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value.map((entry) => assertStoredToolOutcome(entry, fileName));
+}
+
+function assertStoredToolOutcome(value: unknown, fileName: string): PersistedRuntimeToolOutcome {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (typeof value.order !== 'number' || !Number.isInteger(value.order) || value.order <= 0) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (typeof value.toolName !== 'string' || typeof value.summary !== 'string') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  const evidence = value.evidence === undefined ? undefined : assertStringArray(value.evidence, fileName);
+  const touchedFiles = value.touchedFiles === undefined ? undefined : assertStringArray(value.touchedFiles, fileName);
+  const changeSet = value.changeSet === undefined ? undefined : assertStoredChangeSet(value.changeSet, fileName);
+  const resultMarkdown = value.resultMarkdown === undefined ? undefined : assertString(value.resultMarkdown, fileName);
+  const needsReview = value.needsReview === undefined ? undefined : assertBoolean(value.needsReview, fileName);
+  const reviewReasons = value.reviewReasons === undefined ? undefined : assertStringArray(value.reviewReasons, fileName);
+  const data = value.data === undefined ? undefined : assertRecordOfUnknown(value.data, fileName);
+
+  return {
+    order: value.order,
+    toolName: value.toolName,
+    summary: value.summary,
+    ...(evidence === undefined ? {} : { evidence }),
+    ...(touchedFiles === undefined ? {} : { touchedFiles }),
+    ...(changeSet === undefined ? {} : { changeSet }),
+    ...(resultMarkdown === undefined ? {} : { resultMarkdown }),
+    ...(needsReview === undefined ? {} : { needsReview }),
+    ...(reviewReasons === undefined ? {} : { reviewReasons }),
+    ...(data === undefined ? {} : { data })
+  };
+}
+
+function assertStoredRunEventArray(value: unknown, fileName: string): RequestRunEvent[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value.map((entry) => assertStoredRunEvent(entry, fileName));
+}
+
+function assertStoredRunEvent(value: unknown, fileName: string): RequestRunEvent {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (!isRequestRunEventType(value.type)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (typeof value.timestamp !== 'string' || typeof value.summary !== 'string') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  const status = value.status === undefined ? undefined : assertRequestRunStatus(value.status, fileName);
+  const tool_name = value.tool_name === undefined ? undefined : assertString(value.tool_name, fileName);
+  const tool_call_id = value.tool_call_id === undefined ? undefined : assertString(value.tool_call_id, fileName);
+  const evidence = value.evidence === undefined ? undefined : assertStringArray(value.evidence, fileName);
+  const touched_files = value.touched_files === undefined ? undefined : assertStringArray(value.touched_files, fileName);
+  const data = value.data === undefined ? undefined : assertRecordOfUnknown(value.data, fileName);
+
+  return {
+    type: value.type,
+    timestamp: value.timestamp,
+    summary: value.summary,
+    ...(status === undefined ? {} : { status }),
+    ...(tool_name === undefined ? {} : { tool_name }),
+    ...(tool_call_id === undefined ? {} : { tool_call_id }),
+    ...(evidence === undefined ? {} : { evidence }),
+    ...(touched_files === undefined ? {} : { touched_files }),
+    ...(data === undefined ? {} : { data })
+  };
+}
+
+function assertStoredTimelineItemArray(value: unknown, fileName: string): RequestRunTimelineItem[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value.map((entry) => assertStoredTimelineItem(entry, fileName));
+}
+
+function assertStoredTimelineItem(value: unknown, fileName: string): RequestRunTimelineItem {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (!isTimelineLane(value.lane)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (typeof value.title !== 'string' || typeof value.summary !== 'string') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  const timestamp = value.timestamp === undefined ? undefined : assertString(value.timestamp, fileName);
+  const meta = value.meta === undefined ? undefined : assertString(value.meta, fileName);
+
+  return {
+    lane: value.lane,
+    title: value.title,
+    summary: value.summary,
+    ...(timestamp === undefined ? {} : { timestamp }),
+    ...(meta === undefined ? {} : { meta })
+  };
+}
+
+function isRequestRunEventType(value: unknown): value is RequestRunEventType {
+  return value === 'run_started'
+    || value === 'plan_available'
+    || value === 'tool_started'
+    || value === 'tool_finished'
+    || value === 'evidence_added'
+    || value === 'draft_updated'
+    || value === 'run_completed'
+    || value === 'run_failed';
+}
+
+function assertRequestRunStatus(value: unknown, fileName: string): RequestRunStatus {
+  if (!['running', 'needs_review', 'done', 'failed', 'rejected'].includes(String(value))) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value as RequestRunStatus;
+}
+
+function isTimelineLane(value: unknown): value is RequestRunTimelineItem['lane'] {
+  return value === 'user' || value === 'assistant' || value === 'tool' || value === 'system';
+}
+
 function assertStringArray(value: unknown, fileName: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value;
+}
+
+function assertString(value: unknown, fileName: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value;
+}
+
+function assertBoolean(value: unknown, fileName: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value;
+}
+
+function assertRecordOfUnknown(value: unknown, fileName: string): Record<string, unknown> {
+  if (!isRecord(value) || Array.isArray(value)) {
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
 
@@ -222,6 +455,22 @@ async function readRequiredJson<T>(filePath: string, fileName: string): Promise<
 
     if (error instanceof SyntaxError) {
       throw new Error(`Invalid request run state: malformed ${fileName}`);
+    }
+
+    throw error;
+  }
+}
+
+async function readOptionalJson<T>(filePath: string, fallback: T): Promise<T> {
+  try {
+    return JSON.parse(await readFile(filePath, 'utf8')) as T;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return fallback;
+    }
+
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid request run state: malformed ${path.basename(filePath)}`);
     }
 
     throw error;

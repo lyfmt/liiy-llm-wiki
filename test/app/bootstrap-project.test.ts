@@ -29,6 +29,7 @@ describe('bootstrapProject', () => {
           path.join('state', 'checkpoints'),
           path.join('state', 'drafts'),
           path.join('state', 'artifacts'),
+          path.join('state', 'artifacts', 'tasks'),
           'docs',
           path.join('docs', 'superpowers'),
           path.join('docs', 'superpowers', 'specs')
@@ -56,15 +57,19 @@ describe('bootstrapProject', () => {
           path.join(root, 'schema', 'agent-rules.md'),
           path.join(root, 'schema', 'page-types.md'),
           path.join(root, 'schema', 'update-policy.md'),
-          path.join(root, 'schema', 'review-gates.md')
+          path.join(root, 'schema', 'review-gates.md'),
+          path.join(root, 'state', 'artifacts', 'chat-settings.json'),
+          path.join(root, '.env')
         ])
       );
-      expect(result.files).toHaveLength(6);
+      expect(result.files).toHaveLength(8);
 
       const indexContent = await readFile(path.join(root, 'wiki', 'index.md'), 'utf8');
       const pageTypesContent = await readFile(path.join(root, 'schema', 'page-types.md'), 'utf8');
       const updatePolicyContent = await readFile(path.join(root, 'schema', 'update-policy.md'), 'utf8');
       const reviewGatesContent = await readFile(path.join(root, 'schema', 'review-gates.md'), 'utf8');
+      const chatSettingsContent = await readFile(path.join(root, 'state', 'artifacts', 'chat-settings.json'), 'utf8');
+      const envContent = await readFile(path.join(root, '.env'), 'utf8');
 
       expect(indexContent).toContain('# Wiki Index');
       expect(indexContent).toContain('- [Sources](sources/)');
@@ -80,6 +85,11 @@ describe('bootstrapProject', () => {
       expect(reviewGatesContent).toContain('修改 schema 规则');
       expect(reviewGatesContent).toContain('涉及多个主题页的基础判断变化');
       expect(reviewGatesContent).toContain('存在明显证据冲突但无法自动决断');
+      expect(chatSettingsContent).toContain('"model": "gpt-5.4"');
+      expect(chatSettingsContent).toContain('"provider": "llm-wiki-liiy"');
+      expect(chatSettingsContent).toContain('"api_key_env": "RUNTIME_API_KEY"');
+      expect(envContent).toBe('RUNTIME_API_KEY=\n');
+      await expect(access(path.join(root, '.env'))).resolves.toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -94,7 +104,7 @@ describe('bootstrapProject', () => {
 
       const secondRun = await bootstrapProject(root);
 
-      expect(firstRun.files).toHaveLength(6);
+      expect(firstRun.files).toHaveLength(8);
       expect(secondRun.files).toEqual([]);
       await expect(readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).resolves.toBe('# Custom Index\n');
     } finally {

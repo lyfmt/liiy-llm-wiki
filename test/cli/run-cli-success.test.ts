@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+import { bootstrapProject } from '../../src/app/bootstrap-project.js';
 import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import { main } from '../../src/cli.js';
 import { saveKnowledgePage } from '../../src/storage/knowledge-page-store.js';
@@ -30,18 +31,36 @@ describe('main run success path', () => {
       await main(
         ['node', 'cli.js', 'run', root, 'what is patch first?'],
         {
-          bootstrapProject: async (projectRoot) => ({
-            directories: [projectRoot],
-            files: []
-          }),
-          runRuntimeAgent: async ({ root: projectRoot, runId }) => ({
-            runId,
-            intent: 'query',
-            plan: ['inspect the question', 'query the wiki', 'summarize the answer with sources'],
-            assistantText: 'Patch-first updates keep page structure stable.',
-            toolOutcomes: [{ toolName: 'query_wiki', summary: 'Patch-first updates keep page structure stable.' }],
-            savedRunState: path.join(projectRoot, 'state', 'runs', runId)
-          })
+          bootstrapProject: async (projectRoot) => {
+            await bootstrapProject(projectRoot);
+            return {
+              directories: [projectRoot],
+              files: []
+            };
+          },
+          runRuntimeAgent: async ({ root: projectRoot, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix }) => {
+            expect(model).toMatchObject({
+              provider: 'llm-wiki-liiy',
+              id: 'gpt-5.4',
+              api: 'anthropic-messages',
+              baseUrl: 'http://runtime.example.invalid',
+              reasoning: true,
+              contextWindow: 200000,
+              maxTokens: 8192
+            });
+            expect(typeof getApiKey).toBe('function');
+            expect(allowQueryWriteback).toBe(false);
+            expect(allowLintAutoFix).toBe(false);
+
+            return {
+              runId,
+              intent: 'query',
+              plan: ['inspect the question', 'query the wiki', 'summarize the answer with sources'],
+              assistantText: 'Patch First (wiki/topics/patch-first.md): Patch-first updates keep page structure stable.',
+              toolOutcomes: [{ toolName: 'query_wiki', summary: 'Patch First (wiki/topics/patch-first.md): Patch-first updates keep page structure stable.' }],
+              savedRunState: path.join(projectRoot, 'state', 'runs', runId)
+            };
+          }
         }
       );
 
@@ -56,11 +75,11 @@ describe('main run success path', () => {
       expect(output.root).toBe(root);
       expect(output.intent).toBe('query');
       expect(output.runId).toMatch(/[0-9a-f-]{36}/i);
-      expect(output.assistant).toContain('Patch-first updates keep page structure stable.');
+      expect(output.assistant).toContain('Patch First (wiki/topics/patch-first.md): Patch-first updates keep page structure stable.');
       expect(output.toolOutcomes).toEqual([
         {
           toolName: 'query_wiki',
-          summary: 'Patch-first updates keep page structure stable.'
+          summary: 'Patch First (wiki/topics/patch-first.md): Patch-first updates keep page structure stable.'
         }
       ]);
     } finally {

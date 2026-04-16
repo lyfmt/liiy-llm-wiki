@@ -1,6 +1,7 @@
 import { access, mkdir, writeFile } from 'node:fs/promises';
 
 import { buildProjectPaths } from '../config/project-paths.js';
+import { createChatSettings } from '../domain/chat-settings.js';
 
 export interface BootstrapProjectResult {
   directories: string[];
@@ -34,6 +35,7 @@ export async function bootstrapProject(root: string): Promise<BootstrapProjectRe
     projectPaths.stateCheckpoints,
     projectPaths.stateDrafts,
     projectPaths.stateArtifacts,
+    projectPaths.stateTasks,
     projectPaths.docs,
     projectPaths.docsSuperpowers,
     projectPaths.docsSuperpowersSpecs
@@ -80,7 +82,23 @@ High-impact actions require review before applying changes:
 - 修改 schema 规则
 - 涉及多个主题页的基础判断变化
 - 存在明显证据冲突但无法自动决断
-`
+`,
+    [projectPaths.stateChatSettings]: `${JSON.stringify(
+      createChatSettings({
+        model: 'gpt-5.4',
+        provider: 'llm-wiki-liiy',
+        api: 'anthropic-messages',
+        base_url: 'http://runtime.example.invalid/v1',
+        api_key_env: 'RUNTIME_API_KEY',
+        reasoning: true,
+        allow_query_writeback: false,
+        allow_lint_autofix: false
+      }),
+      null,
+      2
+    )}
+`,
+    [projectPaths.projectEnv]: 'RUNTIME_API_KEY=\n'
   } satisfies Record<string, string>;
 
   for (const directory of directories) {

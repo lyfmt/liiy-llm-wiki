@@ -26,6 +26,8 @@ export async function runLintFlow(root: string, input: RunLintFlowInput): Promis
   const pagePaths = new Set(pages.map((page) => page.page.path));
   const incomingCounts = new Map<string, number>();
   const findings: Finding[] = [];
+  const now = Date.now();
+  const staleThresholdMs = 1000 * 60 * 60 * 24 * 30;
 
   for (const loaded of pages) {
     for (const outgoing of loaded.page.outgoing_links) {
@@ -70,7 +72,31 @@ export async function runLintFlow(root: string, input: RunLintFlowInput): Promis
       );
     }
 
-    if (loaded.page.status === 'stale') {
+    if (loaded.page.summary.trim() === '') {
+      findings.push(
+        createFinding({
+          type: 'gap',
+          severity: 'medium',
+          evidence: [loaded.page.path],
+          suggested_action: 'add a structured summary for navigation and answer tracing',
+          resolution_status: 'open'
+        })
+      );
+    }
+
+    if (loaded.page.tags.length === 0) {
+      findings.push(
+        createFinding({
+          type: 'gap',
+          severity: 'low',
+          evidence: [loaded.page.path],
+          suggested_action: 'add tags to improve navigation and retrieval',
+          resolution_status: 'open'
+        })
+      );
+    }
+
+    if (loaded.page.status === 'stale' || isPageOld(loaded.page.updated_at, now, staleThresholdMs)) {
       findings.push(
         createFinding({
           type: 'stale',
@@ -115,6 +141,7 @@ export async function runLintFlow(root: string, input: RunLintFlowInput): Promis
       decisions: reviewCandidates.length === 0 ? ['no review candidates'] : ['record high-risk review candidates'],
       result_summary: `${sortedFindings.length} finding(s), ${reviewCandidates.length} review candidate(s)`
     }),
+    tool_outcomes: [],
     draft_markdown: `# Lint Draft\n\n- Findings: ${sortedFindings.length}\n- Auto-fixed: ${autoFixed.join(', ') || '_none_'}\n`,
     result_markdown: `# Lint Result\n\nReview candidates: ${reviewCandidates.length}\n`,
     changeset:
@@ -201,4 +228,14 @@ function sortFindings(findings: Finding[]): Finding[] {
       a.evidence.join('|').localeCompare(b.evidence.join('|'))
     );
   });
+}
+
+function isPageOld(updatedAt: string, now: number, staleThresholdMs: number): boolean {
+  const timestamp = Date.parse(updatedAt);
+
+  if (Number.isNaN(timestamp)) {
+    return false;
+  }
+
+  return now - timestamp > staleThresholdMs;
 }

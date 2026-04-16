@@ -1,15 +1,12 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-
-import { buildProjectPaths } from '../../config/project-paths.js';
 import { createChangeSet, type ChangeSet } from '../../domain/change-set.js';
 import { createKnowledgePage, type KnowledgePage } from '../../domain/knowledge-page.js';
 import { createRequestRun } from '../../domain/request-run.js';
 import { evaluateReviewGate, type ReviewGateDecision } from '../../policies/review-gate.js';
+import { appendWikiLog, rewriteWikiIndex } from '../wiki/maintain-wiki-navigation.js';
 import { loadKnowledgePage, saveKnowledgePage, type LoadedKnowledgePage } from '../../storage/knowledge-page-store.js';
-import { listKnowledgePages } from '../../storage/list-knowledge-pages.js';
 import { saveRequestRunState } from '../../storage/request-run-state-store.js';
 import { loadSourceManifest } from '../../storage/source-manifest-store.js';
+import { syncReviewTask } from '../review/sync-review-task.js';
 import { readRawDocument } from './read-raw-document.js';
 
 export interface RunIngestFlowInput {
@@ -35,10 +32,14 @@ export async function runIngestFlow(root: string, input: RunIngestFlowInput): Pr
   const topicSlug = slugify(manifest.title);
   const sourcePath = `wiki/sources/${manifest.id}.md`;
   const topicPath = `wiki/topics/${topicSlug}.md`;
+  const summary = summarize(rawBody);
+  const tags = deriveTags(manifest.title, rawBody);
   const sourcePage = createKnowledgePage({
     path: sourcePath,
     kind: 'source',
     title: manifest.title,
+    summary,
+    tags,
     source_refs: [manifest.path],
     outgoing_links: [topicPath],
     status: 'active',
@@ -48,13 +49,15 @@ export async function runIngestFlow(root: string, input: RunIngestFlowInput): Pr
     path: topicPath,
     kind: 'topic',
     title: manifest.title,
+    summary,
+    tags,
     source_refs: [manifest.path],
     outgoing_links: [],
     status: 'active',
     updated_at: manifest.imported_at
   });
   const sourceBody = renderSourceBody(manifest.title, manifest.path, rawBody);
-  const topicBody = renderTopicBody(manifest.title, summarize(rawBody));
+  const topicBody = renderTopicBody(manifest.title, summary);
   const existingSource = await loadPageIfExists(root, 'source', manifest.id);
   const existingTopic = await loadPageIfExists(root, 'topic', topicSlug);
   const sourceChanged = hasPageChanged(existingSource, sourcePage, sourceBody);
@@ -142,7 +145,7 @@ async function persistRunState(
   review: ReviewGateDecision,
   touchedFiles: string[]
 ): Promise<void> {
-  await saveRequestRunState(root, {
+  const runState = {
     request_run: createRequestRun({
       run_id: input.runId,
       user_request: input.userRequest,
@@ -154,12 +157,16 @@ async function persistRunState(
       decisions: review.needs_review ? review.reasons.map((reason) => `queue review gate: ${reason}`) : ['apply low-risk patch'],
       result_summary: review.needs_review ? 'ingest requires review' : touchedFiles.length === 0 ? 'no wiki changes required' : 'ingest applied'
     }),
+    tool_outcomes: [],
     draft_markdown: `# Ingest Draft\n\n- Source: ${sourceRef}\n- Files: ${changeSet.target_files.join(', ') || '_none_'}\n`,
     result_markdown: review.needs_review
       ? `# Ingest Result\n\nQueued for review: ${review.reasons.join('; ')}\n`
       : `# Ingest Result\n\nTouched files: ${touchedFiles.join(', ') || '_none_'}\n`,
     changeset: changeSet
-  });
+  };
+
+  await saveRequestRunState(root, runState);
+  await syncReviewTask(root, runState);
 }
 
 async function loadPageIfExists(
@@ -185,6 +192,9 @@ function hasPageChanged(existing: LoadedKnowledgePage | null, page: KnowledgePag
 
   return (
     existing.page.title !== page.title ||
+    !sameStringArray(existing.page.aliases, page.aliases) ||
+    existing.page.summary !== page.summary ||
+    !sameStringArray(existing.page.tags, page.tags) ||
     !sameStringArray(existing.page.source_refs, page.source_refs) ||
     !sameStringArray(existing.page.outgoing_links, page.outgoing_links) ||
     existing.page.status !== page.status ||
@@ -205,6 +215,14 @@ function summarize(rawBody: string): string {
     .trim();
 }
 
+function deriveTags(title: string, rawBody: string): string[] {
+  return [...new Set(tokenize(`${title} ${rawBody}`).slice(0, 8))];
+}
+
+function tokenize(value: string): string[] {
+  return value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
 function renderSourceBody(title: string, rawPath: string, rawBody: string): string {
   return `# ${title}\n\nSource: ${rawPath}\n\n${rawBody.trim()}\n`;
 }
@@ -217,57 +235,3 @@ function slugify(value: string): string {
   return value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join('-');
 }
 
-async function rewriteWikiIndex(root: string): Promise<boolean> {
-  const paths = buildProjectPaths(root);
-  const sources = await listKnowledgePages(root, 'source');
-  const entities = await listKnowledgePages(root, 'entity');
-  const topics = await listKnowledgePages(root, 'topic');
-  const queries = await listKnowledgePages(root, 'query');
-  const content = `# Wiki Index\n\n## Sources\n${renderSection('sources', sources)}\n## Entities\n${renderSection('entities', entities)}\n## Topics\n${renderSection('topics', topics)}\n## Queries\n${renderSection('queries', queries)}`;
-
-  await mkdir(path.dirname(paths.wikiIndex), { recursive: true });
-
-  try {
-    if ((await readFile(paths.wikiIndex, 'utf8')) === content) {
-      return false;
-    }
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  await writeFile(paths.wikiIndex, content, 'utf8');
-  return true;
-}
-
-function renderSection(directory: string, slugs: string[]): string {
-  if (slugs.length === 0) {
-    return '- _None_\n';
-  }
-
-  return `${slugs.map((slug) => `- [${slug}](${directory}/${slug}.md)`).join('\n')}\n`;
-}
-
-async function appendWikiLog(root: string, entry: string): Promise<boolean> {
-  const paths = buildProjectPaths(root);
-
-  await mkdir(path.dirname(paths.wikiLog), { recursive: true });
-
-  let current = '';
-
-  try {
-    current = await readFile(paths.wikiLog, 'utf8');
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  if (current.endsWith(entry)) {
-    return false;
-  }
-
-  await writeFile(paths.wikiLog, `${current}${entry}`, 'utf8');
-  return true;
-}

@@ -26,6 +26,9 @@ export interface ProjectPaths {
   stateCheckpoints: string;
   stateDrafts: string;
   stateArtifacts: string;
+  stateTasks: string;
+  stateChatSettings: string;
+  projectEnv: string;
 }
 
 export function buildProjectPaths(root: string): ProjectPaths {
@@ -35,6 +38,7 @@ export function buildProjectPaths(root: string): ProjectPaths {
   const wiki = path.join(root, 'wiki');
   const schema = path.join(root, 'schema');
   const state = path.join(root, 'state');
+  const stateArtifacts = path.join(state, 'artifacts');
 
   return {
     root,
@@ -61,6 +65,9 @@ export function buildProjectPaths(root: string): ProjectPaths {
     stateRuns: path.join(state, 'runs'),
     stateCheckpoints: path.join(state, 'checkpoints'),
     stateDrafts: path.join(state, 'drafts'),
-    stateArtifacts: path.join(state, 'artifacts')
+    stateArtifacts,
+    stateTasks: path.join(stateArtifacts, 'tasks'),
+    stateChatSettings: path.join(stateArtifacts, 'chat-settings.json'),
+    projectEnv: path.join(root, '.env')
   };
 }

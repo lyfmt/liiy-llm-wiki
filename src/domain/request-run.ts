@@ -1,4 +1,4 @@
-export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed';
+export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 'rejected';
 
 export interface RequestRun {
   run_id: string;

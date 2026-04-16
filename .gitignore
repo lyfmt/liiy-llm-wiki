@@ -5,3 +5,5 @@ dist/
 .DS_Store
 .codex
 .claude/
+.env
+.llm-wiki-liiy/

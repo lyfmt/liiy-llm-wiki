@@ -1,22 +1,37 @@
 import { Agent, type AgentToolResult, type StreamFn } from '@mariozechner/pi-agent-core';
-import { getModel, type Api, type Message, type Model } from '@mariozechner/pi-ai';
+import { type Api, type Message, type Model } from '@mariozechner/pi-ai';
 
-import { createRequestRun } from '../domain/request-run.js';
-import { saveRequestRunState } from '../storage/request-run-state-store.js';
+import { loadChatSettings } from '../storage/chat-settings-store.js';
+import { saveRequestRunState, type RequestRunEvent } from '../storage/request-run-state-store.js';
+import { syncReviewTask } from '../flows/review/sync-review-task.js';
 import { buildIntentPlan, classifyIntent, type RuntimeIntent } from './intent-classifier.js';
+import { resolveRuntimeModel } from './resolve-runtime-model.js';
 import { createRuntimeContext } from './runtime-context.js';
 import { createRuntimeRunState, type RuntimeToolOutcome } from './request-run-state.js';
 import { buildRuntimeSystemPrompt } from './system-prompt.js';
+import { createApplyDraftUpsertTool } from './tools/apply-draft-upsert.js';
+import {
+  createDraftKnowledgePageTool,
+  createModelBackedKnowledgePageDraftSynthesizer
+} from './tools/draft-knowledge-page.js';
+import { createDraftQueryPageTool } from './tools/draft-query-page.js';
 import { createFindSourceManifestTool } from './tools/find-source-manifest.js';
 import { createIngestSourceTool } from './tools/ingest-source.js';
 import { createLintWikiTool } from './tools/lint-wiki.js';
-import { createQueryWikiTool } from './tools/query-wiki.js';
+import { createListSourceManifestsTool } from './tools/list-source-manifests.js';
+import { createListWikiPagesTool } from './tools/list-wiki-pages.js';
+import { createModelBackedQueryAnswerSynthesizer, createQueryWikiTool } from './tools/query-wiki.js';
+import { createReadRawSourceTool } from './tools/read-raw-source.js';
+import { createReadSourceManifestTool } from './tools/read-source-manifest.js';
+import { createReadWikiPageTool } from './tools/read-wiki-page.js';
+import { createUpsertKnowledgePageTool } from './tools/upsert-knowledge-page.js';
 
 export interface RunRuntimeAgentInput {
   root: string;
   userRequest: string;
   runId: string;
   model?: Model<Api>;
+  getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
   streamFn?: StreamFn;
   allowQueryWriteback?: boolean;
   allowLintAutoFix?: boolean;
@@ -43,7 +58,12 @@ function convertToLlm(messages: RuntimeAgentMessage[]): Message[] {
 export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunRuntimeAgentResult> {
   const intent = classifyIntent(input.userRequest);
   const plan = buildIntentPlan(intent);
-  const model = input.model ?? getModel('anthropic', 'claude-sonnet-4-20250514');
+  const resolvedRuntimeModel = input.model
+    ? {
+        model: input.model,
+        getApiKey: input.getApiKey ?? (() => undefined)
+      }
+    : resolveRuntimeModel(await loadChatSettings(input.root), { root: input.root });
   const runtimeContext = createRuntimeContext({
     root: input.root,
     runId: input.runId,
@@ -51,26 +71,149 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     allowLintAutoFix: input.allowLintAutoFix
   });
   const toolOutcomes: RuntimeToolOutcome[] = [];
-  const tools = buildToolsForIntent(intent, runtimeContext);
+  const events: RequestRunEvent[] = [];
+  const querySynthesizer =
+    input.streamFn === undefined
+      ? createModelBackedQueryAnswerSynthesizer({
+          model: resolvedRuntimeModel.model,
+          getApiKey: resolvedRuntimeModel.getApiKey,
+          sessionId: input.runId
+        })
+      : undefined;
+  const knowledgeDraftSynthesizer =
+    input.streamFn === undefined
+      ? createModelBackedKnowledgePageDraftSynthesizer({
+          model: resolvedRuntimeModel.model,
+          getApiKey: resolvedRuntimeModel.getApiKey,
+          sessionId: input.runId
+        })
+      : undefined;
+  const tools = buildToolsForIntent(intent, runtimeContext, querySynthesizer, knowledgeDraftSynthesizer);
+  const persistRuntimeSnapshot = async (overrides?: {
+    status?: 'running' | 'needs_review' | 'done' | 'failed';
+    assistantSummary?: string;
+  }) => {
+    const runtimeState = createRuntimeRunState({
+      runId: input.runId,
+      userRequest: input.userRequest,
+      intent,
+      plan,
+      toolOutcomes,
+      assistantSummary: overrides?.assistantSummary ?? collectAssistantText(agent.state.messages as RuntimeAgentMessage[], toolOutcomes),
+      status: overrides?.status,
+      events
+    });
+
+    await saveRequestRunState(input.root, runtimeState);
+    return runtimeState;
+  };
+  const appendEvent = async (event: RequestRunEvent, snapshot?: { status?: 'running' | 'needs_review' | 'done' | 'failed'; assistantSummary?: string }) => {
+    events.push(event);
+    await persistRuntimeSnapshot(snapshot);
+  };
   const agent = new Agent({
     initialState: {
       systemPrompt: buildRuntimeSystemPrompt(intent),
-      model,
+      model: resolvedRuntimeModel.model,
       tools,
       messages: []
     },
     streamFn: input.streamFn,
+    getApiKey: resolvedRuntimeModel.getApiKey,
     convertToLlm,
-    beforeToolCall: async () => undefined,
-    afterToolCall: async ({ result }) => {
+    beforeToolCall: async ({ toolCall }) => {
+      await appendEvent(
+        {
+          type: 'tool_started',
+          timestamp: new Date().toISOString(),
+          summary: `Starting ${toolCall.name}`,
+          status: 'running',
+          tool_name: toolCall.name,
+          tool_call_id: toolCall.id,
+          data: isRecord(toolCall.arguments) ? toolCall.arguments : undefined
+        },
+        { status: 'running', assistantSummary: `Running ${toolCall.name}…` }
+      );
+
+      return undefined;
+    },
+    afterToolCall: async ({ toolCall, result }) => {
       const details = result.details as RuntimeToolOutcome;
       toolOutcomes.push(details);
+      const eventTimestamp = new Date().toISOString();
+      const evidence = details.evidence ?? [];
+      const touchedFiles = details.touchedFiles ?? [];
+
+      await appendEvent(
+        {
+          type: 'tool_finished',
+          timestamp: eventTimestamp,
+          summary: `${details.toolName}: ${details.summary}`,
+          status: 'running',
+          tool_name: details.toolName,
+          tool_call_id: toolCall.id,
+          evidence,
+          touched_files: touchedFiles,
+          data: details.data
+        },
+        { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+      );
+
+      if (evidence.length > 0) {
+        await appendEvent(
+          {
+            type: 'evidence_added',
+            timestamp: eventTimestamp,
+            summary: `${details.toolName} added ${evidence.length} evidence reference${evidence.length === 1 ? '' : 's'}`,
+            status: 'running',
+            tool_name: details.toolName,
+            tool_call_id: toolCall.id,
+            evidence
+          },
+          { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+        );
+      }
+
+      if (typeof details.resultMarkdown === 'string' && details.resultMarkdown.length > 0) {
+        await appendEvent(
+          {
+            type: 'draft_updated',
+            timestamp: eventTimestamp,
+            summary: `${details.toolName} produced operator-visible output`,
+            status: 'running',
+            tool_name: details.toolName,
+            tool_call_id: toolCall.id,
+            touched_files: touchedFiles
+          },
+          { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+        );
+      }
 
       return undefined;
     }
   });
 
   try {
+    await appendEvent(
+      {
+        type: 'run_started',
+        timestamp: new Date().toISOString(),
+        summary: `Run started for ${intent} request`,
+        status: 'running'
+      },
+      { status: 'running', assistantSummary: 'Run started.' }
+    );
+    await appendEvent(
+      {
+        type: 'plan_available',
+        timestamp: new Date().toISOString(),
+        summary: `Plan ready with ${plan.length} step${plan.length === 1 ? '' : 's'}`,
+        status: 'running',
+        data: { plan }
+      },
+      { status: 'running', assistantSummary: `Planning ${intent} run.` }
+    );
+
     await agent.prompt(createInitialPrompt(input.userRequest, intent));
 
     const finalAssistant = getLatestAssistantMessage(agent.state.messages as RuntimeAgentMessage[]);
@@ -80,15 +223,31 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     }
 
     const assistantText = collectAssistantText(agent.state.messages as RuntimeAgentMessage[], toolOutcomes);
+    await appendEvent(
+      {
+        type: 'run_completed',
+        timestamp: new Date().toISOString(),
+        summary: assistantText || 'Runtime completed without assistant text.',
+        status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+        touched_files: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? [])),
+        evidence: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.evidence ?? []))
+      },
+      {
+        status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+        assistantSummary: assistantText || 'Runtime completed without assistant text.'
+      }
+    );
     const runtimeState = createRuntimeRunState({
       runId: input.runId,
       userRequest: input.userRequest,
       intent,
       plan,
       toolOutcomes,
-      assistantSummary: assistantText || 'Runtime completed without assistant text.'
+      assistantSummary: assistantText || 'Runtime completed without assistant text.',
+      events
     });
     const savedPaths = await saveRequestRunState(input.root, runtimeState);
+    await syncReviewTask(input.root, runtimeState);
 
     return {
       runId: input.runId,
@@ -100,42 +259,71 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    const failedState = {
-      request_run: createRequestRun({
-        run_id: input.runId,
-        user_request: input.userRequest,
-        intent,
-        plan,
-        status: 'failed',
-        evidence: toolOutcomes.flatMap((outcome) => outcome.evidence ?? []),
-        touched_files: toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? []),
-        decisions: toolOutcomes.map((outcome) => `${outcome.toolName}: ${outcome.summary}`),
-        result_summary: message
-      }),
-      draft_markdown: '# Runtime Draft\n\nRuntime failed before completion.\n',
-      result_markdown: `# Runtime Result\n\nFailed: ${message}\n`,
-      changeset: null
-    };
+    const failedTimestamp = new Date().toISOString();
+    events.push({
+      type: 'run_failed',
+      timestamp: failedTimestamp,
+      summary: message,
+      status: 'failed',
+      touched_files: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? [])),
+      evidence: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.evidence ?? []))
+    });
+    const failedState = createRuntimeRunState({
+      runId: input.runId,
+      userRequest: input.userRequest,
+      intent,
+      plan,
+      toolOutcomes,
+      assistantSummary: message,
+      status: 'failed',
+      events
+    });
     await saveRequestRunState(input.root, failedState);
     throw error;
   }
 }
 
-function buildToolsForIntent(intent: RuntimeIntent, runtimeContext: ReturnType<typeof createRuntimeContext>) {
+function buildToolsForIntent(
+  intent: RuntimeIntent,
+  runtimeContext: ReturnType<typeof createRuntimeContext>,
+  querySynthesizer?: ReturnType<typeof createModelBackedQueryAnswerSynthesizer>,
+  knowledgeDraftSynthesizer?: ReturnType<typeof createModelBackedKnowledgePageDraftSynthesizer>
+) {
+  const wikiObserveTools = [createListWikiPagesTool(runtimeContext), createReadWikiPageTool(runtimeContext)];
+  const sourceObserveTools = [
+    createListSourceManifestsTool(runtimeContext),
+    createReadSourceManifestTool(runtimeContext),
+    createReadRawSourceTool(runtimeContext)
+  ];
+
   switch (intent) {
     case 'ingest':
-      return [createFindSourceManifestTool(runtimeContext), createIngestSourceTool(runtimeContext)];
+      return [...wikiObserveTools, ...sourceObserveTools, createFindSourceManifestTool(runtimeContext), createIngestSourceTool(runtimeContext)];
     case 'lint':
-      return [createLintWikiTool(runtimeContext)];
+      return [...wikiObserveTools, createLintWikiTool(runtimeContext)];
     case 'mixed':
       return [
+        ...wikiObserveTools,
+        ...sourceObserveTools,
+        createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
+        createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+        createApplyDraftUpsertTool(runtimeContext),
         createFindSourceManifestTool(runtimeContext),
         createIngestSourceTool(runtimeContext),
-        createQueryWikiTool(runtimeContext),
+        createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+        createUpsertKnowledgePageTool(runtimeContext),
         createLintWikiTool(runtimeContext)
       ];
     case 'query':
-      return [createQueryWikiTool(runtimeContext)];
+      return [
+        ...wikiObserveTools,
+        ...sourceObserveTools,
+        createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
+        createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+        createApplyDraftUpsertTool(runtimeContext),
+        createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+        createUpsertKnowledgePageTool(runtimeContext)
+      ];
   }
 }
 
@@ -150,12 +338,12 @@ function createInitialPrompt(userRequest: string, intent: RuntimeIntent): Runtim
 function buildPromptText(userRequest: string, intent: RuntimeIntent): string {
   const toolGuidance =
     intent === 'ingest'
-      ? 'Use ingest_source with sourceId when known, or sourcePath for explicit raw/accepted/... requests. For loose source references, call find_source_manifest first and only ingest when there is a unique strongest candidate.'
+      ? 'Start by inspecting wiki pages and source manifests when the source reference is ambiguous. Use list_source_manifests and read_source_manifest or find_source_manifest before ingest_source for loose references, and only ingest when there is a unique strongest candidate.'
       : intent === 'lint'
-        ? 'Use lint_wiki to inspect the wiki and report findings.'
+        ? 'Inspect wiki structure first, then use lint_wiki to report findings.'
         : intent === 'mixed'
-          ? 'Use the minimum safe combination of query_wiki, lint_wiki, and ingest_source.'
-          : 'Use query_wiki to answer from the wiki.';
+          ? 'Inspect the wiki and sources first, preferably with list_wiki_pages, read_wiki_page, read_raw_source, list_source_manifests, and read_source_manifest. Use read_wiki_page to inspect incoming links and shared-source relationships before synthesizing. For durable page creation, prefer draft_query_page for reusable answers and draft_knowledge_page for other durable pages, then prefer apply_draft_upsert to apply the structured draft payload through governed writeback. Only fall back to direct upsert_knowledge_page when no structured draft is appropriate. Use the minimum safe combination of query_wiki, draft_knowledge_page, draft_query_page, apply_draft_upsert, upsert_knowledge_page, lint_wiki, and ingest_source.'
+          : 'Start with list_wiki_pages using the user request as a navigation query when page selection is unclear, then read_wiki_page and inspect incoming links or shared-source related pages before synthesizing. If the page exposes raw/accepted source refs, follow them with read_raw_source before using query_wiki. When the answer appears durable, prefer draft_query_page first, then apply_draft_upsert; fall back to draft_knowledge_page or direct upsert only when needed.';
 
   return [`User request: ${userRequest}`, `Detected intent: ${intent}.`, toolGuidance].join(' ');
 }
@@ -190,4 +378,12 @@ function collectAssistantText(messages: RuntimeAgentMessage[], toolOutcomes: Run
 
 export function extractRuntimeToolOutcome(result: AgentToolResult<unknown>): RuntimeToolOutcome {
   return result.details as RuntimeToolOutcome;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

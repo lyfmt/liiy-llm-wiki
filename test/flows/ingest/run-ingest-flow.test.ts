@@ -9,6 +9,7 @@ import { createSourceManifest } from '../../../src/domain/source-manifest.js';
 import { runIngestFlow } from '../../../src/flows/ingest/run-ingest-flow.js';
 import { loadKnowledgePage, saveKnowledgePage } from '../../../src/storage/knowledge-page-store.js';
 import { loadRequestRunState } from '../../../src/storage/request-run-state-store.js';
+import { loadKnowledgeTask } from '../../../src/storage/task-store.js';
 import { saveSourceManifest } from '../../../src/storage/source-manifest-store.js';
 
 describe('runIngestFlow', () => {
@@ -239,6 +240,12 @@ describe('runIngestFlow', () => {
       const reviewRunState = await loadRequestRunState(root, 'run-004');
       expect(reviewRunState.request_run.status).toBe('needs_review');
       expect(reviewRunState.changeset?.needs_review).toBe(true);
+      await expect(loadKnowledgeTask(root, 'review-run-004')).resolves.toMatchObject({
+        id: 'review-run-004',
+        status: 'needs_review',
+        assignee: 'operator',
+        evidence: expect.arrayContaining(['raw/accepted/design.md', 'wiki/topics/patch-first-design.md'])
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

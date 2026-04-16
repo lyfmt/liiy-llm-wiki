@@ -44,6 +44,20 @@ describe('createRequestRun', () => {
     expect(run.result_summary).toBe('needs user review');
   });
 
+  it('supports rejected review runs as a persisted terminal state', () => {
+    const run = createRequestRun({
+      run_id: 'run-002b',
+      user_request: 'review this changeset',
+      intent: 'query',
+      plan: ['inspect review'],
+      status: 'rejected',
+      result_summary: 'review rejected'
+    });
+
+    expect(run.status).toBe('rejected');
+    expect(run.result_summary).toBe('review rejected');
+  });
+
   it('does not mutate the created run when caller-owned arrays change later', () => {
     const plan = ['read wiki'];
     const evidence = ['wiki/topics/llm-wiki.md'];

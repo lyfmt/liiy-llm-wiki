@@ -18,6 +18,8 @@ describe('createKnowledgePage', () => {
       kind: 'topic',
       title: 'LLM Wiki',
       aliases: [],
+      summary: '',
+      tags: [],
       source_refs: ['raw/inbox/example.md'],
       outgoing_links: [],
       status: 'active',
@@ -31,6 +33,8 @@ describe('createKnowledgePage', () => {
       kind: 'entity',
       title: 'Example Entity',
       aliases: ['Example'],
+      summary: 'Entity summary',
+      tags: ['example', 'entity'],
       source_refs: ['raw/accepted/example.md'],
       outgoing_links: ['wiki/topics/llm-wiki.md'],
       status: 'archived',
@@ -38,6 +42,8 @@ describe('createKnowledgePage', () => {
     });
 
     expect(page.aliases).toEqual(['Example']);
+    expect(page.summary).toBe('Entity summary');
+    expect(page.tags).toEqual(['example', 'entity']);
     expect(page.outgoing_links).toEqual(['wiki/topics/llm-wiki.md']);
     expect(page.kind).toBe('entity');
   });

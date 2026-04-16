@@ -5,6 +5,8 @@ export interface KnowledgePage {
   kind: KnowledgePageKind;
   title: string;
   aliases: string[];
+  summary: string;
+  tags: string[];
   source_refs: string[];
   outgoing_links: string[];
   status: string;
@@ -16,6 +18,8 @@ export interface CreateKnowledgePageInput {
   kind: KnowledgePageKind;
   title: string;
   aliases?: string[];
+  summary?: string;
+  tags?: string[];
   source_refs: string[];
   outgoing_links?: string[];
   status: string;
@@ -28,6 +32,8 @@ export function createKnowledgePage(input: CreateKnowledgePageInput): KnowledgeP
     kind: input.kind,
     title: input.title,
     aliases: [...(input.aliases ?? [])],
+    summary: input.summary?.trim() ?? '',
+    tags: [...(input.tags ?? [])],
     source_refs: [...input.source_refs],
     outgoing_links: [...(input.outgoing_links ?? [])],
     status: input.status,

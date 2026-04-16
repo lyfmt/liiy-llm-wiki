@@ -1,158 +1,196 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides high-level guidance to Claude Code when working in this repository.
 
-## 当前仓库状态
+## Source of truth
 
-- 项目设计文档放在 `docs/superpowers/specs/`,先阅读这个。
-- 当前最重要的设计规格是 `docs/superpowers/specs/2026-04-11-llm-wiki-design.md`。
-- 如果仓库根目录还没有 `package.json`、`src/`、`test/`，说明实现尚未合入主工作区；这时先读设计文档，再决定是否进入实现分支或工作树。
+- Start with `docs/superpowers/specs/`.
+- The most important design document is `docs/superpowers/specs/2026-04-11-llm-wiki-design.md`.
+- Treat the design documents as the primary source of truth for product direction, system boundaries, and MVP scope.
+- If the implementation and the design intent diverge, prefer moving the implementation back toward the design direction unless there is a clear newer decision recorded in the repository.
 
-## 设计与流程文档位置
+## Product identity
 
-- **项目设计：** `docs/superpowers/specs/`
-- 设计文档是当前阶段的主要事实来源，尤其是：
-  - 系统目标
-  - 目录结构
-  - 核心对象模型
-  - runtime / storage / policy 分层
-  - MVP 范围
+This project is **not** meant to become a slightly smarter deterministic retrieval pipeline.
 
-## 项目流程
+Its intended shape is:
 
-按以下流程推进，不要跳步：
+- a **local-first knowledge agent system**;
+- centered on a **wiki as the long-lived knowledge surface**;
+- driven by an agent that can observe, navigate, synthesize, and maintain knowledge over time.
 
-1. **状态分析**
-2. **计划制定**
-   - 先形成实现计划
-   - 把计划交给 Codex 做 review
-   - 最多循环 3 次，直到计划通过
-3. **计划实施**
-   - 把任务交付给 Codex 实现
-   - 验收
-   - 托付实现
-   - 按任务循环推进，直到计划实现完成
-4. **Review**
-   - 把实现结果交付给 Codex review
-   - 修复问题
-   - 再次 review
-   - 直到通过
-5. **判断是否达到 MVP**
-   - 如果达到：补一份实现报告和一份可展示的成果报告,要求使用html格式
-   - 如果未达到：回到第 1 步继续循环
+The system should help an agent move through a knowledge space, not just select a best page and produce a one-shot answer.
 
-### 强制执行规则（高优先级，必须强调）
+## Core product direction
 
-- **除系统级安全要求必须确认的高风险动作外，只有在“达到 MVP 阶段成功”之后，才能跳出上述循环来询问用户。**
-- **在达到 MVP 之前，不要中途向用户询问选择、请求确认、汇报阶段性进度；应继续按照“状态分析 → 计划制定 → 计划实施 → Review → 判断是否达到 MVP”的闭环自主推进。**
-- **如果第 5 步判断“尚未达到 MVP”，则不得中断向用户提问，必须直接回到第 1 步继续下一轮循环。**
-- **只有当第 5 步明确判定“已经达到 MVP”时，才允许向用户同步结果，并提交 HTML 格式的实现报告与成果报告。**
+The correct long-term direction is:
 
-## Git 与工作树约定
+1. A user makes a natural-language request.
+2. The agent inspects the wiki structure first.
+3. The agent navigates pages, summaries, links, tags, aliases, and source references.
+4. The agent decides whether the current evidence is sufficient.
+5. The agent answers, proposes changes, or requests review when needed.
+6. Valuable results are written back into the wiki or related state.
 
-- 这个仓库使用 `.worktrees/` 作为项目内工作树目录。
-- `.worktrees` 已加入 `.gitignore`，新实现工作优先放在这里。
-- 如果要做非 trivial 功能，优先在独立 worktree 中执行，而不是直接在主工作区堆改动。
+In other words, this repository should evolve toward **navigation over knowledge space**, not toward a monolithic query engine that tries to pre-compute everything before agent reasoning begins.
 
-## 常用命令
+## Guiding principles
 
-### 设计阶段
+### 1. Agentic control flow, deterministic execution
+The system should remain split in this way:
 
-当前主工作区如果还没有实现代码，优先使用这些动作：
+- **Agentic:** what to inspect first, which pages to follow, when evidence is sufficient, when to continue, when to write back.
+- **Deterministic:** file I/O, manifests, page persistence, run state, review gates, patch application, and auditable state transitions.
 
-```bash
-# 查看仓库当前状态
-ls -la
+Do not collapse these two layers into either:
 
-# 查看设计规格
-ls docs/superpowers/specs
-```
+- a fully hard-coded pipeline, or
+- an unstructured agent with no operational boundaries.
 
-### 实现分支 / 工作树阶段
+### 2. Wiki-first, not answer-first
+The wiki is not just an output store.
+It is the main interface through which knowledge is organized, revisited, and expanded.
 
-当工作区里已经有 `package.json` 后，使用以下 Node.js / TypeScript 命令：
+Prefer approaches that strengthen the wiki as a usable knowledge surface:
 
-```bash
-# 安装依赖
-npm install
+- index and overview pages;
+- summaries and synopses;
+- links and backlinks;
+- tags;
+- aliases;
+- source references;
+- clear page kinds.
 
-# 运行全部测试
-npm run test
+### 3. Observe before synthesize, synthesize before mutate
+A healthy default order is:
 
-# 运行单个测试文件
-npx vitest run test/<path>.test.ts
+**Observe → Synthesize → Mutate → Govern**
 
-# 类型检查
-npm run typecheck
+That means:
 
-# 构建
-npm run build
-```
+- inspect the current knowledge structure first;
+- form an answer or judgment from observed evidence;
+- write only when there is durable value;
+- use policy and review gates for high-impact actions.
 
-说明：
+### 4. Keep contracts truthful
+Do not describe the system as more capable than it really is.
 
-- 当前设计与计划里，测试工具是 `vitest`。
-- 当前阶段还没有单独的 lint 命令时，不要臆造 `npm run lint`；优先使用 `npm run typecheck` 和针对性的测试命令。
+If a capability is currently a narrow helper, fallback, or compatibility layer, describe it that way.
+Avoid language that makes the product sound like a fully realized semantic query engine when it is actually using bounded deterministic heuristics.
 
-## 高层架构
+### 5. Prefer durable knowledge over ephemeral output
+The product should favor knowledge that remains useful after the current chat ends.
 
-### 1. 四层知识目录
+Good outputs are not only immediate responses, but also:
 
-根据设计规格，项目根目录最终围绕 4 类持久化数据展开：
+- improved wiki pages;
+- better navigation structure;
+- clearer links between concepts;
+- traceable query pages with provenance;
+- inspectable run state and review records.
 
-- `raw/`：原始资料层，只读事实输入
-- `wiki/`：长期知识层，agent 持续维护
-- `schema/`：规则层，约束 agent 如何维护知识库
-- `state/`：运行态与中间产物，保存 run、plan、draft、changeset、finding、result
+## Architectural boundaries
 
-这是整个系统最重要的结构边界。后续实现时不要把这 4 层混在一起。
+Keep the repository organized around these four persistent layers:
 
-### 2. 运行模型
+- `raw/` — source material, treated as factual input and generally read-only
+- `wiki/` — long-lived knowledge maintained by the system
+- `schema/` — rules, constraints, and maintenance guidance
+- `state/` — run state, plans, drafts, findings, changesets, and results
 
-这个项目不是固定流水线，而是**单主 Knowledge Agent + 动态计划**：
+Do not blur these responsibilities.
+A change that belongs to one layer should not be casually pushed into another.
 
-- 用户发起自然语言请求
-- 系统识别当前意图（例如 ingest / query / lint）
-- agent 生成本次临时计划
-- agent 调用知识工具执行
-- 系统根据结果修订计划、落盘状态、决定是否进入 review gate
+## How to think about query, ingest, and lint
 
-也就是说，流程是**动态计划驱动**，边界靠 `schema/`、policy 和状态持久化来约束。
+Do not treat these as unrelated product features.
+They are three views of the same knowledge-maintenance system:
 
-### 3. 代码层职责（按设计规格）
+- **ingest** expands and refreshes knowledge;
+- **query** navigates and synthesizes knowledge;
+- **lint** checks knowledge quality, structure, and consistency.
 
-实现代码落地后，重点关注以下模块边界：
+Query should not become the sole center of the product.
+If a deterministic query flow exists, it should be viewed as a helper, fallback, baseline, or compatibility layer unless it truly reflects the intended agentic workflow.
 
-- `src/domain/`：核心对象模型，例如 source manifest、knowledge page、request run、changeset、finding
-- `src/storage/`：文件系统读写与持久化
-- `src/runtime/`：`pi-ai` / `pi-agent-core` 集成、system prompt、tools、policy hooks
-- `src/flows/`：ingest / query / lint 三类主要流程
-- `src/app/`：项目初始化、意图解析、请求分发
-- `src/policies/`：review gate 与风险控制规则
+## Tooling direction
 
-判断改动该放哪一层时，优先按职责，而不是按技术类型随意堆放。
+Prefer small, composable, observable capabilities over one large tool that tries to do everything.
 
-### 4. 外部运行时依赖
+In general, the system should move toward tools that help an agent inspect and navigate knowledge, rather than tools that hide all reasoning behind a single opaque call.
 
-设计与计划已经明确，这个项目的基础运行时方向是：
+Good capability direction includes:
 
-- `@mariozechner/pi-ai`
-- `@mariozechner/pi-agent-core`
-- 必要时参考 `pi-coding-agent` 的工具、session、hook 和扩展思路
+- reading wiki entry points;
+- listing and locating pages;
+- following links and references;
+- reading source-backed pages;
+- understanding relationships across pages.
 
-含义是：
+## Web product direction
 
-- 模型 / provider / tool schema 主要靠 `pi-ai`
-- agent loop、tool execution、`beforeToolCall` / `afterToolCall` 主要靠 `pi-agent-core`
-- 文件系统状态、wiki 更新、review gate 由本项目自己实现
+The long-term product is larger than a CLI runtime.
+It should grow toward a web-based knowledge and operations system with at least these surfaces:
 
-## 进入实现前先确认什么
+### 1. Web knowledge wiki
+A browsable wiki interface for humans and agents, including:
 
-如果你准备开始或继续实现，先确认下面几点：
+- index and overview entry points;
+- topic, source, entity, and query pages;
+- link, backlink, tag, and source-reference navigation;
+- page summaries, provenance, and history.
 
-- 当前工作区是否已经有 `package.json`
-- 当前任务对应的设计规格是否已经存在于 `docs/superpowers/specs/`
-- 是否已经有对应的实现计划
-- 当前改动是否应该放进 `.worktrees/` 中的独立工作树
+### 2. Management console
+An operational surface for managing:
 
-如果这些前置条件缺失，先补前置条件，不要直接开始写代码。
+- source materials and manifests;
+- wiki pages and schema;
+- run state and findings;
+- changesets and review decisions;
+- knowledge-quality issues such as conflicts, stale pages, or missing links.
+
+### 3. Task publishing and tracking
+A structured task layer for knowledge work, where users can publish and track work such as:
+
+- ingest tasks;
+- research and synthesis tasks;
+- cleanup and maintenance tasks;
+- review tasks.
+
+Tasks should be treated as first-class work objects, not as an afterthought.
+
+### 4. Chat operations backend
+Chat should not be treated as a simple message log.
+It should become an execution surface where the system can expose:
+
+- the current request;
+- the current plan;
+- tool-call traces;
+- evidence collected;
+- touched files;
+- draft changes;
+- result summaries.
+
+## Working style for Claude Code
+
+When making changes in this repository:
+
+- read the relevant design documents first;
+- preserve the high-level product direction;
+- prefer architectural clarity over local hacks;
+- keep changes aligned with the wiki-centered agent model;
+- avoid overfitting the system to short-term deterministic query behavior;
+- keep write paths auditable and reviewable;
+- prefer patches that strengthen navigation, traceability, and long-term knowledge quality.
+
+## Practical orientation
+
+Before implementing major changes, confirm:
+
+- the relevant design spec already exists;
+- the intended change supports the wiki-centered agent direction;
+- the change strengthens long-term knowledge maintenance rather than only short-term answer generation;
+- the system description remains honest about what is already implemented versus what is still aspirational.
+
+If the repository is in an early or partial implementation state, use the design documents to guide the next increment instead of improvising a different product shape.

@@ -1,0 +1,22 @@
+name: llm-wiki-liiy
+
+services:
+  llm-wiki-liiy:
+    build:
+      context: .
+    command: ["node", "dist/cli.js", "serve", "/data/project", "3000"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./.llm-wiki-liiy:/data/project
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/health').then((response)=>{if(!response.ok){process.exit(1)}}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

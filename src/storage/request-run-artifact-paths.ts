@@ -7,6 +7,9 @@ export interface RequestRunArtifactPaths {
   request: string;
   plan: string;
   evidence: string;
+  toolOutcomes: string;
+  events: string;
+  timeline: string;
   draft: string;
   changeset: string;
   result: string;
@@ -24,6 +27,9 @@ export function buildRequestRunArtifactPaths(root: string, runId: string): Reque
     request: path.join(runDirectory, 'request.json'),
     plan: path.join(runDirectory, 'plan.json'),
     evidence: path.join(runDirectory, 'evidence.json'),
+    toolOutcomes: path.join(runDirectory, 'tool-outcomes.json'),
+    events: path.join(runDirectory, 'events.json'),
+    timeline: path.join(runDirectory, 'timeline.json'),
     draft: path.join(runDirectory, 'draft.md'),
     changeset: path.join(runDirectory, 'changeset.json'),
     result: path.join(runDirectory, 'result.md'),

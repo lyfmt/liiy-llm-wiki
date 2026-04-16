@@ -30,7 +30,9 @@ describe('buildProjectPaths', () => {
 
         state: path.join(root, 'state'),
         stateRuns: path.join(root, 'state', 'runs'),
-        stateArtifacts: path.join(root, 'state', 'artifacts')
+        stateArtifacts: path.join(root, 'state', 'artifacts'),
+        stateTasks: path.join(root, 'state', 'artifacts', 'tasks'),
+        stateChatSettings: path.join(root, 'state', 'artifacts', 'chat-settings.json')
       })
     );
   });

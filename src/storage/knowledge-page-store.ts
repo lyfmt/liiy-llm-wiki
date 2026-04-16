@@ -48,6 +48,8 @@ export async function loadKnowledgePage(
       kind,
       title: record.title,
       aliases: record.aliases,
+      summary: record.summary,
+      tags: record.tags,
       source_refs: record.source_refs,
       outgoing_links: record.outgoing_links,
       status: record.status,
@@ -89,6 +91,8 @@ function parseFrontmatter(frontmatter: string): {
   kind: KnowledgePageKind;
   title: string;
   aliases: string[];
+  summary: string;
+  tags: string[];
   source_refs: string[];
   outgoing_links: string[];
   status: string;
@@ -115,6 +119,8 @@ function parseFrontmatter(frontmatter: string): {
   const kind = parseKind(value.kind);
   const title = parseStringField(value.title);
   const aliases = parseStringArrayField(value.aliases);
+  const summary = parseOptionalStringField(value.summary);
+  const tags = parseOptionalStringArrayField(value.tags);
   const source_refs = parseStringArrayField(value.source_refs);
   const outgoing_links = parseStringArrayField(value.outgoing_links);
   const status = parseStringField(value.status);
@@ -124,6 +130,8 @@ function parseFrontmatter(frontmatter: string): {
     kind,
     title,
     aliases,
+    summary,
+    tags,
     source_refs,
     outgoing_links,
     status,
@@ -151,6 +159,14 @@ function parseStringField(value: unknown): string {
   return value;
 }
 
+function parseOptionalStringField(value: unknown): string {
+  if (value === undefined) {
+    return '';
+  }
+
+  return parseStringField(value);
+}
+
 function parseStringArrayField(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
     throw new Error('Invalid knowledge page: malformed frontmatter');
@@ -159,12 +175,22 @@ function parseStringArrayField(value: unknown): string[] {
   return [...value];
 }
 
+function parseOptionalStringArrayField(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return parseStringArrayField(value);
+}
+
 function renderFrontmatter(page: KnowledgePage): string {
   return stringify(
     {
       kind: page.kind,
       title: page.title,
       aliases: page.aliases,
+      summary: page.summary,
+      tags: page.tags,
       source_refs: page.source_refs,
       outgoing_links: page.outgoing_links,
       status: page.status,

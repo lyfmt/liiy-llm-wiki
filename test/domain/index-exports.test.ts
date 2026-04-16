@@ -45,6 +45,8 @@ describe('package entry domain exports', () => {
       kind: 'topic',
       title: 'LLM Wiki',
       aliases: [],
+      summary: '',
+      tags: [],
       source_refs: [],
       outgoing_links: [],
       status: 'active',

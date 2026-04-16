@@ -12,6 +12,7 @@ describe('ESLint tooling', () => {
     const eslintConfig = await readFile(path.join(root, 'eslint.config.js'), 'utf8');
 
     expect(packageJson.scripts?.lint).toBe('eslint .');
+    expect(packageJson.scripts?.['test:live-llm-wiki-liiy']).toBe('vitest run test/runtime/live-llm-wiki-liiy.test.ts');
     expect(packageJson.devDependencies?.eslint).toBeDefined();
     expect(packageJson.devDependencies?.['@eslint/js']).toBeDefined();
     expect(packageJson.devDependencies?.typescript).toBeDefined();

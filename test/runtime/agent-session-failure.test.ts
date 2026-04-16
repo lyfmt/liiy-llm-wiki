@@ -25,6 +25,35 @@ describe('runRuntimeAgent failure handling', () => {
 
       const runState = await loadRequestRunState(root, 'runtime-agent-failed-001');
       expect(runState.request_run.status).toBe('failed');
+      expect(runState.tool_outcomes).toEqual([]);
+      expect(runState.events?.map((event) => event.type)).toEqual(['run_started', 'plan_available', 'run_failed']);
+      expect(runState.timeline_items).toEqual([
+        {
+          lane: 'user',
+          title: 'User request',
+          summary: 'what is patch first?',
+          meta: 'intent: query'
+        },
+        {
+          lane: 'assistant',
+          title: 'Execution plan',
+          summary: '3 steps planned',
+          meta: 'inspect the question → query the wiki → summarize the answer with sources'
+        },
+        {
+          lane: 'system',
+          title: 'Latest persisted event',
+          summary: 'synthetic runtime failure',
+          timestamp: expect.any(String),
+          meta: 'run_failed · status: failed'
+        },
+        {
+          lane: 'assistant',
+          title: 'Result summary',
+          summary: 'synthetic runtime failure',
+          meta: 'output: result available'
+        }
+      ]);
       expect(runState.result_markdown).toContain('synthetic runtime failure');
     } finally {
       await rm(root, { recursive: true, force: true });

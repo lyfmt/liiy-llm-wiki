@@ -19,8 +19,8 @@ describe('main', () => {
         JSON.stringify(
           {
             root,
-            directories: 18,
-            files: 6
+            directories: 19,
+            files: 8
           },
           null,
           2
@@ -34,7 +34,7 @@ describe('main', () => {
         JSON.stringify(
           {
             root,
-            directories: 18,
+            directories: 19,
             files: 0
           },
           null,
@@ -49,7 +49,7 @@ describe('main', () => {
 
   it('fails fast when the target root is missing', async () => {
     await expect(main(['node', 'cli.js'])).rejects.toThrow(
-      'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>'
+      'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request> | serve <project-root> [port]'
     );
   });
 });
@@ -60,11 +60,11 @@ describe('logDirectExecError', () => {
 
     try {
       logDirectExecError(
-        new Error('Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>')
+        new Error('Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request> | serve <project-root> [port]')
       );
 
       expect(errorSpy).toHaveBeenCalledWith(
-        'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request>'
+        'Usage: node dist/cli.js <project-root> | bootstrap <project-root> | run <project-root> <request> | serve <project-root> [port]'
       );
     } finally {
       errorSpy.mockRestore();

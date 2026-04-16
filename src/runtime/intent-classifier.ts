@@ -17,6 +17,11 @@ export function classifyIntent(userRequest: string): RuntimeIntent {
     detectQueryIntent(normalized),
     detectLintIntent(normalized)
   ].filter((signal) => signal.matched);
+  const mutationMatched = detectMutationIntent(normalized);
+
+  if (mutationMatched) {
+    return 'mixed';
+  }
 
   if (signals.length === 0) {
     return 'query';
@@ -79,4 +84,17 @@ function detectLintIntent(normalized: string): IntentSignal {
       normalized.includes('missing link') ||
       normalized.includes('orphan page')
   };
+}
+
+function detectMutationIntent(normalized: string): boolean {
+  return (
+    /\bcreate\b/.test(normalized) ||
+    /\bupdate\b/.test(normalized) ||
+    /\bupsert\b/.test(normalized) ||
+    /\binsert\b/.test(normalized) ||
+    /\bwrite\b/.test(normalized) ||
+    /\bedit\b/.test(normalized) ||
+    normalized.includes('new wiki') ||
+    normalized.includes('new page')
+  );
 }

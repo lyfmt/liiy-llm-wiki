@@ -22,6 +22,8 @@ describe('createLintWikiTool', () => {
           path: 'wiki/topics/unsourced.md',
           kind: 'topic',
           title: 'Unsourced',
+          summary: 'Conflicting unsourced page.',
+          tags: ['unsourced'],
           source_refs: [],
           outgoing_links: [],
           status: 'stale',

@@ -7,8 +7,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:web": "npm --prefix web run build",
     "test": "vitest run",
+    "test:live-llm-wiki-liiy": "vitest run test/runtime/live-llm-wiki-liiy.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:web": "npx tsc --noEmit -p web/tsconfig.json",
     "lint": "eslint .",
     "install-hooks": "node scripts/install-git-hooks.mjs",
     "prepare": "npm run install-hooks"

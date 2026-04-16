@@ -80,7 +80,7 @@ export async function findAcceptedSourceManifestCandidates(
   return candidates;
 }
 
-async function listSourceManifests(root: string): Promise<SourceManifest[]> {
+export async function listSourceManifests(root: string): Promise<SourceManifest[]> {
   const manifestDirectory = path.dirname(buildSourceManifestPath(root, 'placeholder-id'));
 
   let entries: string[];

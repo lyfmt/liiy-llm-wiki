@@ -1,0 +1,86 @@
+:root {
+  --background: 210 100% 98%;
+  --foreground: 210 29% 15%;
+  --primary: 196 100% 70%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 210 20% 94%;
+  --muted-foreground: 210 16% 43%;
+  --destructive: 349 100% 86%;
+  --destructive-foreground: 210 29% 15%;
+  --card: 0 0% 100%;
+  --border: 204 40% 90%;
+  --radius: 1rem;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-family: 'VT323', monospace;
+    font-size: 1.1rem;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'VT323', monospace;
+    letter-spacing: 0.05em;
+  }
+}
+
+@layer utilities {
+  .pixel-border {
+    border: 4px solid #1C2833;
+    box-shadow: 
+      2px 2px 0 0 #1C2833,
+      -2px -2px 0 0 #1C2833,
+      2px -2px 0 0 #1C2833,
+      -2px 2px 0 0 #1C2833;
+    image-rendering: pixelated;
+  }
+
+  .pixel-button {
+    @apply relative px-4 py-2 bg-[#66CCFF] text-[#1C2833] font-bold transition-all;
+    border: 2px solid #1C2833;
+    box-shadow: 2px 2px 0 0 #1C2833;
+  }
+
+  .pixel-button:active {
+    box-shadow: none;
+    transform: translate(2px, 2px);
+  }
+
+  .glass-panel {
+    @apply border border-white/50 bg-white/70 backdrop-blur-md;
+  }
+
+  .template-shadow {
+    box-shadow: 0 4px 20px rgba(102, 204, 255, 0.15);
+  }
+
+  .template-text-heading {
+    color: #1c2833;
+  }
+
+  .template-text-body {
+    color: #5d6d7e;
+  }
+
+  .template-bg-primary {
+    background-color: #66ccff;
+  }
+
+  .template-bg-accent {
+    background-color: #ffb7c5;
+  }
+}
