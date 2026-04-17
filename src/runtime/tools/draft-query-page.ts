@@ -23,7 +23,8 @@ export function createDraftQueryPageTool(
   return {
     name: 'draft_query_page',
     label: 'Draft Query Page',
-    description: 'Draft a durable query page from live query results without mutating the wiki; preferred precursor to apply_draft_upsert for durable query writeback',
+    description:
+      'Prepare a durable query-page draft for answers with clear long-term reuse. Do not use this for one-off replies, tentative answers, or low-value chat output. Preferred precursor to apply_draft_upsert for durable query writeback.',
     parameters,
     execute: async (_toolCallId, params) => {
       const result = await runQueryFlow(runtimeContext.root, {

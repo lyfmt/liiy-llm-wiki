@@ -30,6 +30,7 @@ export function ConsolePage() {
   const [formState, setFormState] = useState<ChatSettingsUpdateRequest>(defaultFormState);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showEndpointModal, setShowEndpointModal] = useState(false);
@@ -99,11 +100,24 @@ export function ConsolePage() {
     return api === 'anthropic-messages' ? withScheme.replace(/\/v1\/?$/u, '') : withScheme;
   };
 
-  async function loadAll() {
-    setLoading(true);
+  async function loadAll(options?: { discover?: boolean }) {
+    if (options?.discover) {
+      setDiscovering(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const [settingsValue, modelsValue] = await Promise.all([getChatSettings(), getChatModels()]);
+      const [settingsValue, modelsValue] = await Promise.all([
+        getChatSettings(),
+        getChatModels(options?.discover ? {
+          discover: true,
+          provider: formState.provider,
+          api: formState.api,
+          base_url: formState.base_url,
+          api_key_env: formState.api_key_env
+        } : undefined)
+      ]);
       setModelsResponse(modelsValue);
       const contents = settingsValue.project_env.contents;
       setProjectEnvContents(contents);
@@ -140,10 +154,19 @@ export function ConsolePage() {
         allow_query_writeback: settingsValue.settings.allow_query_writeback,
         allow_lint_autofix: settingsValue.settings.allow_lint_autofix
       });
+
+      if (options?.discover) {
+        if (modelsValue.discovery.error) {
+          setError(`探测失败: ${modelsValue.discovery.error}`);
+        } else {
+          setMessage('模型探测成功。');
+        }
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setLoading(false);
+      setDiscovering(false);
     }
   }
 
@@ -341,10 +364,11 @@ export function ConsolePage() {
                   </select>
                   <button
                     type="button"
-                    onClick={() => void loadAll()}
-                    className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-[#66CCFF] border border-[#66CCFF]/30 rounded-[12px] font-bold text-sm hover:bg-[#F0F8FF] transition-colors whitespace-nowrap"
+                    onClick={() => void loadAll({ discover: true })}
+                    disabled={discovering || loading}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-[#66CCFF] border border-[#66CCFF]/30 rounded-[12px] font-bold text-sm hover:bg-[#F0F8FF] transition-colors whitespace-nowrap disabled:opacity-50"
                   >
-                    <RefreshCw size={16} /> 刷新模型
+                    <RefreshCw size={16} className={discovering ? 'animate-spin' : ''} /> {discovering ? '正在探测...' : '探测并刷新模型'}
                   </button>
                 </div>
               </div>

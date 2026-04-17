@@ -2,6 +2,7 @@ export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 
 
 export interface RequestRun {
   run_id: string;
+  session_id: string | null;
   user_request: string;
   intent: string;
   plan: string[];
@@ -14,6 +15,7 @@ export interface RequestRun {
 
 export interface CreateRequestRunInput {
   run_id: string;
+  session_id?: string | null;
   user_request: string;
   intent: string;
   plan: string[];
@@ -27,6 +29,7 @@ export interface CreateRequestRunInput {
 export function createRequestRun(input: CreateRequestRunInput): RequestRun {
   return {
     run_id: input.run_id,
+    session_id: input.session_id ?? null,
     user_request: input.user_request,
     intent: input.intent,
     plan: [...input.plan],

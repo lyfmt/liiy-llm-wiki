@@ -34,7 +34,8 @@ export function createQueryWikiTool(
   return {
     name: 'query_wiki',
     label: 'Query Wiki',
-    description: 'Query the wiki and optionally persist a reusable query page',
+    description:
+      'Synthesize an answer from wiki pages and raw evidence when direct navigation and reading are not enough. Do not use this for greetings, test messages, casual chat, or questions you can answer reliably without wiki evidence.',
     parameters,
     execute: async (_toolCallId, params) => {
       const persistQueryPage = runtimeContext.allowQueryWriteback && (params.persistQueryPage ?? false);

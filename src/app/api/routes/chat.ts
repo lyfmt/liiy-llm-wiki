@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import {
   toAcceptedChatRunResponseDto,
   toChatRunLinkSummaryDto,
+  toChatRunUiStateDto,
+  toChatSessionDetailDto,
+  toChatSessionSummaryDto,
   toChatSettingsResponseDto,
   toChatSettingsUpdateResponseDto,
   toCompletedChatRunResponseDto,
@@ -15,6 +18,16 @@ import {
   resolveMissingChatRunApiKey,
   summarizeChatRunResponseDto
 } from '../services/chat.js';
+import {
+  buildChatConversationHistory,
+  createChatSessionForRequest,
+  deriveChatActions,
+  deriveChatUiState,
+  ensureChatSession,
+  listChatSessionSummariesDto,
+  loadChatSessionDetailDto,
+  recordRunInChatSession
+} from '../services/chat-session.js';
 import { parseChatRunStartRequestDto, parseChatSettingsUpdateRequestDto } from '../services/command.js';
 import type { ApiRouteContext } from '../route-context.js';
 import { loadRequestRunStateIfExists, readJsonBody, writeJson } from '../route-helpers.js';
@@ -30,7 +43,7 @@ import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settin
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
 
 export async function handleChatRoutes(context: ApiRouteContext): Promise<boolean> {
-  const { root, request, response, method, pathname, dependencies } = context;
+  const { root, request, response, method, pathname, url, dependencies } = context;
 
   if (method === 'GET' && pathname === '/api/chat/settings') {
     const [settings, projectEnv] = await Promise.all([loadChatSettings(root), loadProjectEnv(root)]);
@@ -54,7 +67,72 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
   }
 
   if (method === 'GET' && pathname === '/api/chat/models') {
-    writeJson(response, 200, await buildChatModelsResponseDto(root));
+    writeJson(
+      response,
+      200,
+      await buildChatModelsResponseDto(root, {
+        provider: typeof url.searchParams.get('provider') === 'string' ? (url.searchParams.get('provider') ?? undefined) : undefined,
+        api:
+          url.searchParams.get('api') === 'anthropic-messages' ||
+          url.searchParams.get('api') === 'openai-completions' ||
+          url.searchParams.get('api') === 'openai-responses'
+            ? (url.searchParams.get('api') as 'anthropic-messages' | 'openai-completions' | 'openai-responses')
+            : undefined,
+        base_url: url.searchParams.get('base_url') ?? undefined,
+        api_key_env: url.searchParams.get('api_key_env') ?? undefined,
+        discover: url.searchParams.get('discover') === '1'
+      })
+    );
+    return true;
+  }
+
+  if (method === 'GET' && pathname === '/api/chat/sessions') {
+    writeJson(response, 200, (await listChatSessionSummariesDto(root)).map((session) => toChatSessionSummaryDto(session)));
+    return true;
+  }
+
+  if (method === 'POST' && pathname === '/api/chat/sessions') {
+    const payload = await readJsonBody(request);
+    const userRequest = typeof payload.userRequest === 'string' ? payload.userRequest : 'New chat';
+    const session = await createChatSessionForRequest(root, userRequest);
+    writeJson(
+      response,
+      201,
+      toChatSessionSummaryDto({
+        session_id: session.session_id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        status: session.status,
+        summary: session.summary,
+        last_run_id: session.last_run_id,
+        run_count: session.run_ids.length
+      })
+    );
+    return true;
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/chat/sessions/')) {
+    const sessionId = decodeURIComponent(pathname.slice('/api/chat/sessions/'.length));
+    writeJson(response, 200, toChatSessionDetailDto(await loadChatSessionDetailDto(root, sessionId)));
+    return true;
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/chat/run-ui/')) {
+    const runId = decodeURIComponent(pathname.slice('/api/chat/run-ui/'.length));
+    const runState = await loadRequestRunStateIfExists(root, runId);
+    if (runState === null) {
+      writeJson(response, 404, { error: 'run_not_found' });
+      return true;
+    }
+    writeJson(
+      response,
+      200,
+      toChatRunUiStateDto({
+        ui_state: deriveChatUiState(runState),
+        actions: deriveChatActions(runState)
+      })
+    );
     return true;
   }
 
@@ -106,6 +184,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
           code: 'missing_api_key',
           error: `Missing API key in project .env: ${missingApiKey.apiKeyEnv}`,
           run_id: null,
+          session_id: payload.sessionId ?? null,
           links: toChatRunLinkSummaryDto({
             run_id: null,
             review_url: null,
@@ -126,11 +205,14 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       return true;
     }
 
+    const chatSession = await ensureChatSession(root, userRequest, payload.sessionId);
+    const conversationHistory = await buildChatConversationHistory(root, chatSession.session_id);
     const runId = randomUUID();
     const intent = classifyIntent(userRequest);
     const plan = buildIntentPlan(intent);
     const acceptedState = createRuntimeRunState({
       runId,
+      sessionId: chatSession.session_id,
       userRequest,
       intent,
       plan,
@@ -156,10 +238,19 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
 
     await saveRequestRunState(root, acceptedState);
 
+    await recordRunInChatSession(root, {
+      session: chatSession,
+      runId,
+      status: 'running',
+      summary: userRequest.trim()
+    });
+
     const launchPromise = dependencies.runRuntimeAgent({
       root,
       userRequest,
       runId,
+      sessionId: chatSession.session_id,
+      conversationHistory,
       model: resolvedRuntimeModel.model,
       getApiKey: resolvedRuntimeModel.getApiKey,
       allowQueryWriteback: settings.allow_query_writeback,
@@ -202,7 +293,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
     });
 
     if (launchSnapshot.type === 'resolved') {
-      await persistResolvedChatRunIfStillRunning(root, runId, userRequest, launchSnapshot.result);
+      await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, launchSnapshot.result);
       const [runState, runResponse] = await Promise.all([
         loadRequestRunStateIfExists(root, runId),
         summarizeChatRunResponseDto(root, runId)
@@ -226,17 +317,17 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
 
     if (launchSnapshot.type === 'rejected') {
       const launchError = launchSnapshot.error;
-      await persistFailedChatRunLaunch(root, runId, userRequest, intent, plan, launchError);
+      await persistFailedChatRunLaunch(root, runId, chatSession.session_id, userRequest, intent, plan, launchError);
       writeJson(response, 500, await buildFailedChatRunResponseDto(root, runId, launchError));
       return true;
     }
 
     void launchPromise.then(
       async (result) => {
-        await persistResolvedChatRunIfStillRunning(root, runId, userRequest, result);
+        await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, result);
       },
       async (error: unknown) => {
-        await persistFailedChatRunLaunchIfStillRunning(root, runId, userRequest, intent, plan, error);
+        await persistFailedChatRunLaunchIfStillRunning(root, runId, chatSession.session_id, userRequest, intent, plan, error);
       }
     );
 
@@ -245,6 +336,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       202,
       toAcceptedChatRunResponseDto({
         runId,
+        session_id: chatSession.session_id,
         intent: acceptedState.request_run.intent,
         status: acceptedState.request_run.status,
         result_summary: acceptedState.request_run.result_summary,
@@ -262,6 +354,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
 async function persistResolvedChatRunIfStillRunning(
   root: string,
   runId: string,
+  sessionId: string,
   userRequest: string,
   result: RunRuntimeAgentResult
 ): Promise<void> {
@@ -273,6 +366,7 @@ async function persistResolvedChatRunIfStillRunning(
 
   const persistedState = createRuntimeRunState({
     runId,
+    sessionId,
     userRequest,
     intent: result.intent,
     plan: result.plan,
@@ -281,12 +375,19 @@ async function persistResolvedChatRunIfStillRunning(
   });
 
   await saveRequestRunState(root, persistedState);
+  await recordRunInChatSession(root, {
+    session: await ensureChatSession(root, userRequest, sessionId),
+    runId,
+    status: persistedState.request_run.status === 'needs_review' ? 'needs_review' : persistedState.request_run.status === 'failed' ? 'failed' : 'done',
+    summary: persistedState.request_run.result_summary
+  });
   await syncReviewTask(root, persistedState);
 }
 
 async function persistFailedChatRunLaunchIfStillRunning(
   root: string,
   runId: string,
+  sessionId: string,
   userRequest: string,
   intent: string,
   plan: string[],
@@ -298,12 +399,13 @@ async function persistFailedChatRunLaunchIfStillRunning(
     return;
   }
 
-  await persistFailedChatRunLaunch(root, runId, userRequest, intent, plan, error);
+  await persistFailedChatRunLaunch(root, runId, sessionId, userRequest, intent, plan, error);
 }
 
 async function persistFailedChatRunLaunch(
   root: string,
   runId: string,
+  sessionId: string,
   userRequest: string,
   intent: string,
   plan: string[],
@@ -311,9 +413,10 @@ async function persistFailedChatRunLaunch(
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
 
-  await saveRequestRunState(root, {
+  const failedState: Awaited<ReturnType<typeof loadRequestRunStateIfExists>> extends infer T ? Exclude<T, null> : never = {
     request_run: createRequestRun({
       run_id: runId,
+      session_id: sessionId,
       user_request: userRequest,
       intent,
       plan,
@@ -348,5 +451,13 @@ async function persistFailedChatRunLaunch(
     draft_markdown: '# Runtime Draft\n\nRun failed before any tool activity.\n',
     result_markdown: `# Runtime Result\n\nFailed: ${message}\n`,
     changeset: null
+  };
+
+  await saveRequestRunState(root, failedState);
+  await recordRunInChatSession(root, {
+    session: await ensureChatSession(root, userRequest, sessionId),
+    runId,
+    status: 'failed',
+    summary: message
   });
 }

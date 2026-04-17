@@ -26,6 +26,7 @@ export interface RuntimeToolOutcome {
 
 export interface CreateRuntimeRunStateInput {
   runId: string;
+  sessionId?: string | null;
   userRequest: string;
   intent: RuntimeIntent;
   plan: string[];
@@ -52,6 +53,7 @@ export function createRuntimeRunState(input: CreateRuntimeRunStateInput): Reques
   const needsReview = input.toolOutcomes.some((outcome) => outcome.needsReview);
   const requestRun = createRequestRun({
     run_id: input.runId,
+    session_id: input.sessionId ?? null,
     user_request: input.userRequest,
     intent: input.intent,
     plan: input.plan,

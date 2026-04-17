@@ -17,7 +17,8 @@ export function createFindSourceManifestTool(
   return {
     name: 'find_source_manifest',
     label: 'Find Source Manifest',
-    description: 'Find accepted source manifest candidates for a natural-language ingest reference',
+    description:
+      'Find accepted source manifest candidates for a natural-language ingest reference. Use this before ingest when the source reference is loose or ambiguous.',
     parameters,
     execute: async (_toolCallId, params) => {
       const candidates = await findAcceptedSourceManifestCandidates(runtimeContext.root, params.query);

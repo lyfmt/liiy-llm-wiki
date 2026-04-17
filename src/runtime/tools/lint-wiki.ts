@@ -16,7 +16,8 @@ export function createLintWikiTool(runtimeContext: RuntimeContext): AgentTool<ty
   return {
     name: 'lint_wiki',
     label: 'Lint Wiki',
-    description: 'Run deterministic wiki lint checks and optional low-risk autofix',
+    description:
+      'Run deterministic wiki lint checks and optional low-risk autofix when the user asks to inspect, audit, or repair wiki quality. Not for ordinary conversation.',
     parameters,
     execute: async (_toolCallId, params) => {
       const result = await runLintFlow(runtimeContext.root, {

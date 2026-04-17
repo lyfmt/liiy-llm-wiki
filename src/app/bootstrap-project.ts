@@ -36,6 +36,7 @@ export async function bootstrapProject(root: string): Promise<BootstrapProjectRe
     projectPaths.stateDrafts,
     projectPaths.stateArtifacts,
     projectPaths.stateTasks,
+    projectPaths.stateChatSessions,
     projectPaths.docs,
     projectPaths.docsSuperpowers,
     projectPaths.docsSuperpowersSpecs

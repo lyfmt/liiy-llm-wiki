@@ -133,6 +133,7 @@ export interface RuntimeReadinessSummary {
 
 export interface RunSummary {
   run_id: string;
+  session_id: string | null;
   status: RequestRunStatus;
   intent: string;
   result_summary: string;
@@ -186,6 +187,7 @@ export interface RunTimelineItem {
 export interface RunDetailResponse {
   request_run: {
     run_id: string;
+    session_id: string | null;
     user_request: string;
     intent: string;
     plan: string[];
@@ -254,6 +256,12 @@ export interface ChatModelsResponse {
   default_provider: string;
   providers: ChatModelProvider[];
   selected: ChatModelsSelected;
+  discovery: {
+    mode: 'catalog' | 'runtime';
+    discoverable: boolean;
+    source: 'builtin_catalog' | 'remote_probe';
+    error: string | null;
+  };
 }
 
 export interface ChatSettingsUpdateRequest {
@@ -284,6 +292,7 @@ export interface ChatRunAcceptedResponse extends ChatRunLinkSummary {
   accepted: true;
   runId: string;
   run_id: string;
+  session_id: string;
   intent: string;
   status: RequestRunStatus;
   result_summary: string;
@@ -295,6 +304,7 @@ export interface ChatRunCompletedResponse extends ChatRunLinkSummary {
   ok: true;
   runId: string;
   run_id: string;
+  session_id: string | null;
   intent: string;
   plan: string[];
   result_summary: string;
@@ -315,11 +325,37 @@ export interface ChatRunFailedResponse extends ChatRunLinkSummary {
   config_hint: string;
   settings_url: string;
   run_id: string | null;
+  session_id?: string | null;
   result_summary: string;
   model?: string;
   provider?: string;
   base_url?: string;
   missing_api_key_env?: string;
+}
+
+export interface ChatSessionSummary {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  status: 'idle' | 'running' | 'needs_review' | 'done' | 'failed';
+  summary: string;
+  last_run_id: string | null;
+  run_count: number;
+}
+
+export interface ChatSessionDetail {
+  session: ChatSessionSummary;
+  runs: RunDetailResponse[];
+}
+
+export interface ChatRunUiState {
+  ui_state: 'chat' | 'clarify' | 'confirm' | 'review' | 'done';
+  actions: Array<{
+    kind: 'reply' | 'clarify' | 'approve' | 'retry' | 'new_chat';
+    label: string;
+    prompt?: string;
+  }>;
 }
 
 export type ChatRunStartResponse = ChatRunAcceptedResponse | ChatRunCompletedResponse | ChatRunFailedResponse;

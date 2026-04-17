@@ -17,7 +17,8 @@ export function createReadSourceManifestTool(
   return {
     name: 'read_source_manifest',
     label: 'Read Source Manifest',
-    description: 'Read a source manifest with metadata and ingest status',
+    description:
+      'Read a source manifest with metadata and ingest status after you already have a candidate manifest. Useful for source resolution and ingest decisions, not for general conversation.',
     parameters,
     execute: async (_toolCallId, params) => {
       const manifest = await loadSourceManifest(runtimeContext.root, params.sourceId);

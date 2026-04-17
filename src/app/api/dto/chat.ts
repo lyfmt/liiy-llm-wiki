@@ -1,6 +1,7 @@
+import type { ChatAction, ChatUiState } from '../../../domain/chat-session.js';
 import type { ChatModelApi } from '../../../domain/chat-settings.js';
 import type { RequestRunStatus } from '../../../domain/request-run.js';
-import type { RunSummaryDto } from './run.js';
+import type { RunDetailResponseDto, RunSummaryDto } from './run.js';
 
 export interface RuntimeReadinessSummaryDto {
   ready: boolean;
@@ -89,10 +90,18 @@ export interface ChatModelsSelectedDto {
   max_tokens?: number;
 }
 
+export interface ChatModelsDiscoveryStatusDto {
+  mode: 'catalog' | 'runtime';
+  discoverable: boolean;
+  source: 'builtin_catalog' | 'remote_probe';
+  error: string | null;
+}
+
 export interface ChatModelsResponseDto {
   default_provider: string;
   providers: ChatModelProviderDto[];
   selected: ChatModelsSelectedDto;
+  discovery: ChatModelsDiscoveryStatusDto;
 }
 
 export interface ChatRunLinkSummaryDto {
@@ -109,6 +118,7 @@ export interface ChatRunAcceptedResponseDto {
   accepted: true;
   runId: string;
   run_id: string;
+  session_id: string;
   intent: string;
   status: RequestRunStatus;
   result_summary: string;
@@ -134,6 +144,7 @@ export interface ChatRunCompletedResponseDto extends ChatRunLinkSummaryDto {
   ok: true;
   runId: string;
   run_id: string;
+  session_id: string | null;
   intent: string;
   plan: string[];
   result_summary: string;
@@ -147,9 +158,37 @@ export interface ChatRunFailedResponseDto extends ChatRunLinkSummaryDto {
   config_hint: string;
   settings_url: string;
   run_id: string | null;
+  session_id?: string | null;
   result_summary: string;
   model?: string;
   provider?: string;
   base_url?: string;
   missing_api_key_env?: string;
+}
+
+export interface ChatSessionSummaryDto {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  status: 'idle' | 'running' | 'needs_review' | 'done' | 'failed';
+  summary: string;
+  last_run_id: string | null;
+  run_count: number;
+}
+
+export interface ChatSessionDetailDto {
+  session: ChatSessionSummaryDto;
+  runs: RunDetailResponseDto[];
+}
+
+export interface ChatActionDto {
+  kind: ChatAction['kind'];
+  label: string;
+  prompt?: string;
+}
+
+export interface ChatRunUiStateDto {
+  ui_state: ChatUiState;
+  actions: ChatActionDto[];
 }

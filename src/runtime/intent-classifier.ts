@@ -1,7 +1,7 @@
-export type RuntimeIntent = 'ingest' | 'query' | 'lint' | 'mixed';
+export type RuntimeIntent = 'general' | 'ingest' | 'query' | 'lint' | 'mixed';
 
 interface IntentSignal {
-  intent: Exclude<RuntimeIntent, 'mixed'>;
+  intent: Exclude<RuntimeIntent, 'mixed' | 'general'>;
   matched: boolean;
 }
 
@@ -9,7 +9,11 @@ export function classifyIntent(userRequest: string): RuntimeIntent {
   const normalized = userRequest.trim().toLowerCase();
 
   if (normalized.length === 0) {
-    return 'query';
+    return 'general';
+  }
+
+  if (detectGeneralChatIntent(normalized)) {
+    return 'general';
   }
 
   const signals = [
@@ -24,7 +28,7 @@ export function classifyIntent(userRequest: string): RuntimeIntent {
   }
 
   if (signals.length === 0) {
-    return 'query';
+    return 'general';
   }
 
   if (signals.length === 1) {
@@ -36,14 +40,16 @@ export function classifyIntent(userRequest: string): RuntimeIntent {
 
 export function buildIntentPlan(intent: RuntimeIntent): string[] {
   switch (intent) {
+    case 'general':
+      return ['understand the request', 'decide whether any tools are truly needed', 'reply or act with the minimum necessary context'];
     case 'ingest':
-      return ['inspect the source request', 'run the ingest capability', 'report review-gate or persistence results'];
+      return ['inspect the source request', 'resolve ambiguity before mutating anything', 'run ingest and report persistence or review results'];
     case 'query':
-      return ['inspect the question', 'query the wiki', 'summarize the answer with sources'];
+      return ['inspect whether wiki evidence is actually needed', 'gather only the necessary wiki or source context', 'answer clearly and write back only if durable value is obvious'];
     case 'lint':
-      return ['inspect the lint request', 'run the lint capability', 'summarize findings and review candidates'];
+      return ['inspect the lint or audit request', 'run the minimum necessary inspection tools', 'summarize findings, fixes, and review candidates'];
     case 'mixed':
-      return ['inspect the combined request', 'choose the minimum safe tool sequence', 'summarize outcomes and any review gates'];
+      return ['understand the combined request', 'choose the minimum safe tool sequence', 'summarize outcomes, writebacks, and any review gates'];
   }
 }
 
@@ -96,5 +102,15 @@ function detectMutationIntent(normalized: string): boolean {
     /\bedit\b/.test(normalized) ||
     normalized.includes('new wiki') ||
     normalized.includes('new page')
+  );
+}
+
+function detectGeneralChatIntent(normalized: string): boolean {
+  return (
+    /^(test|testing|ping|hello|hi|hey|yo|sup)$/.test(normalized) ||
+    /^who are you\??$/.test(normalized) ||
+    /^what can you do\??$/.test(normalized) ||
+    /^你是谁[？?]?$/.test(normalized) ||
+    /^你能做什么[？?]?$/.test(normalized)
   );
 }

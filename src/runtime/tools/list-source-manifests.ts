@@ -24,7 +24,8 @@ export function createListSourceManifestsTool(
   return {
     name: 'list_source_manifests',
     label: 'List Source Manifests',
-    description: 'List source manifests and their ingest status',
+    description:
+      'List source manifests and their ingest status when resolving source-oriented requests. Usually helpful before ingest or source maintenance, not for ordinary chat.',
     parameters,
     execute: async (_toolCallId, params) => {
       const manifests = (await listSourceManifests(runtimeContext.root)).filter((manifest) => {

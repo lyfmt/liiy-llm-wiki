@@ -25,7 +25,8 @@ export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentToo
   return {
     name: 'read_wiki_page',
     label: 'Read Wiki Page',
-    description: 'Read a wiki page with metadata, links, and body content',
+    description:
+      'Read a specific wiki page in detail, including metadata, backlinks, related pages, and body content. Use after you already have a likely page candidate. Skip it when a direct answer does not need wiki evidence.',
     parameters,
     execute: async (_toolCallId, params) => {
       const loaded = await loadKnowledgePage(runtimeContext.root, params.kind as KnowledgePageKind, params.slug);

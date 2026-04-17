@@ -18,7 +18,8 @@ export function createIngestSourceTool(runtimeContext: RuntimeContext): AgentToo
   return {
     name: 'ingest_source',
     label: 'Ingest Source',
-    description: 'Ingest an accepted source manifest by manifest id or accepted raw path',
+    description:
+      'Ingest an accepted source manifest by manifest id or accepted raw path. Use only when the user explicitly asks for ingest or source expansion, and resolve ambiguity first.',
     parameters,
     execute: async (_toolCallId, params) => {
       const hasSourceId = typeof params.sourceId === 'string';

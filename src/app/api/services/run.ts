@@ -71,7 +71,13 @@ async function loadRequestRunStateIfExists(root: string, runId: string): Promise
   try {
     return await loadRequestRunState(root, runId);
   } catch (error: unknown) {
-    if (error instanceof Error && error.message.startsWith('Incomplete request run state: missing ')) {
+    if (
+      error instanceof Error
+      && (
+        error.message.startsWith('Incomplete request run state: missing ')
+        || error.message.startsWith('Invalid request run state: ')
+      )
+    ) {
       return null;
     }
 

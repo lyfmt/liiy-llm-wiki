@@ -3,8 +3,16 @@ import { type Api, type Message, type Model } from '@mariozechner/pi-ai';
 
 import { loadChatSettings } from '../storage/chat-settings-store.js';
 import { saveRequestRunState, type RequestRunEvent } from '../storage/request-run-state-store.js';
+import { findAcceptedSourceManifestByPath } from '../storage/source-manifest-store.js';
+import { runIngestFlow } from '../flows/ingest/run-ingest-flow.js';
 import { syncReviewTask } from '../flows/review/sync-review-task.js';
 import { buildIntentPlan, classifyIntent, type RuntimeIntent } from './intent-classifier.js';
+import {
+  appendRuntimeSystemContext,
+  createRuntimeContextReminderMessage,
+  getRuntimeSystemContext,
+  getRuntimeUserContext
+} from './prompt-context.js';
 import { resolveRuntimeModel } from './resolve-runtime-model.js';
 import { createRuntimeContext } from './runtime-context.js';
 import { createRuntimeRunState, type RuntimeToolOutcome } from './request-run-state.js';
@@ -30,6 +38,8 @@ export interface RunRuntimeAgentInput {
   root: string;
   userRequest: string;
   runId: string;
+  sessionId?: string;
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   model?: Model<Api>;
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
   streamFn?: StreamFn;
@@ -58,18 +68,24 @@ function convertToLlm(messages: RuntimeAgentMessage[]): Message[] {
 export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunRuntimeAgentResult> {
   const intent = classifyIntent(input.userRequest);
   const plan = buildIntentPlan(intent);
-  const resolvedRuntimeModel = input.model
-    ? {
-        model: input.model,
-        getApiKey: input.getApiKey ?? (() => undefined)
-      }
-    : resolveRuntimeModel(await loadChatSettings(input.root), { root: input.root });
   const runtimeContext = createRuntimeContext({
     root: input.root,
     runId: input.runId,
     allowQueryWriteback: input.allowQueryWriteback,
     allowLintAutoFix: input.allowLintAutoFix
   });
+  const deterministicIngestResult = await tryRunDeterministicIngestShortcut(input, intent, plan, runtimeContext);
+
+  if (deterministicIngestResult) {
+    return deterministicIngestResult;
+  }
+
+  const resolvedRuntimeModel = input.model
+    ? {
+        model: input.model,
+        getApiKey: input.getApiKey ?? (() => undefined)
+      }
+    : resolveRuntimeModel(await loadChatSettings(input.root), { root: input.root });
   const toolOutcomes: RuntimeToolOutcome[] = [];
   const events: RequestRunEvent[] = [];
   const querySynthesizer =
@@ -77,7 +93,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       ? createModelBackedQueryAnswerSynthesizer({
           model: resolvedRuntimeModel.model,
           getApiKey: resolvedRuntimeModel.getApiKey,
-          sessionId: input.runId
+          sessionId: input.sessionId ?? input.runId
         })
       : undefined;
   const knowledgeDraftSynthesizer =
@@ -85,16 +101,31 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       ? createModelBackedKnowledgePageDraftSynthesizer({
           model: resolvedRuntimeModel.model,
           getApiKey: resolvedRuntimeModel.getApiKey,
-          sessionId: input.runId
+          sessionId: input.sessionId ?? input.runId
         })
       : undefined;
-  const tools = buildToolsForIntent(intent, runtimeContext, querySynthesizer, knowledgeDraftSynthesizer);
+  const [runtimeUserContext, runtimeSystemContext] = await Promise.all([
+    getRuntimeUserContext(input.root),
+    Promise.resolve(
+      getRuntimeSystemContext({
+        root: input.root,
+        intent,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        allowQueryWriteback: input.allowQueryWriteback,
+        allowLintAutoFix: input.allowLintAutoFix
+      })
+    )
+  ]);
+  const tools = buildRuntimeTools(runtimeContext, querySynthesizer, knowledgeDraftSynthesizer);
+  const initialMessages = buildInitialMessages(runtimeUserContext, input.conversationHistory);
   const persistRuntimeSnapshot = async (overrides?: {
     status?: 'running' | 'needs_review' | 'done' | 'failed';
     assistantSummary?: string;
   }) => {
     const runtimeState = createRuntimeRunState({
       runId: input.runId,
+      sessionId: input.sessionId,
       userRequest: input.userRequest,
       intent,
       plan,
@@ -113,10 +144,10 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
   };
   const agent = new Agent({
     initialState: {
-      systemPrompt: buildRuntimeSystemPrompt(intent),
+      systemPrompt: appendRuntimeSystemContext(buildRuntimeSystemPrompt(intent), runtimeSystemContext),
       model: resolvedRuntimeModel.model,
       tools,
-      messages: []
+      messages: initialMessages
     },
     streamFn: input.streamFn,
     getApiKey: resolvedRuntimeModel.getApiKey,
@@ -137,18 +168,19 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
 
       return undefined;
     },
-    afterToolCall: async ({ toolCall, result }) => {
-      const details = result.details as RuntimeToolOutcome;
+    afterToolCall: async ({ toolCall, result, isError }) => {
+      const details = normalizeRuntimeToolOutcome(toolCall.name, result, isError);
       toolOutcomes.push(details);
       const eventTimestamp = new Date().toISOString();
       const evidence = details.evidence ?? [];
       const touchedFiles = details.touchedFiles ?? [];
+      const toolSummary = `${details.toolName}: ${details.summary}`;
 
       await appendEvent(
         {
           type: 'tool_finished',
           timestamp: eventTimestamp,
-          summary: `${details.toolName}: ${details.summary}`,
+          summary: toolSummary,
           status: 'running',
           tool_name: details.toolName,
           tool_call_id: toolCall.id,
@@ -156,7 +188,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
           touched_files: touchedFiles,
           data: details.data
         },
-        { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+        { status: 'running', assistantSummary: toolSummary }
       );
 
       if (evidence.length > 0) {
@@ -170,11 +202,11 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
             tool_call_id: toolCall.id,
             evidence
           },
-          { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+          { status: 'running', assistantSummary: toolSummary }
         );
       }
 
-      if (typeof details.resultMarkdown === 'string' && details.resultMarkdown.length > 0) {
+      if (typeof details.resultMarkdown === 'string' && details.resultMarkdown.length > 0 && !isError) {
         await appendEvent(
           {
             type: 'draft_updated',
@@ -185,11 +217,13 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
             tool_call_id: toolCall.id,
             touched_files: touchedFiles
           },
-          { status: 'running', assistantSummary: `${details.toolName}: ${details.summary}` }
+          { status: 'running', assistantSummary: toolSummary }
         );
       }
 
-      return undefined;
+      return {
+        details
+      };
     }
   });
 
@@ -214,7 +248,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       { status: 'running', assistantSummary: `Planning ${intent} run.` }
     );
 
-    await agent.prompt(createInitialPrompt(input.userRequest, intent));
+    await agent.prompt(input.userRequest);
 
     const finalAssistant = getLatestAssistantMessage(agent.state.messages as RuntimeAgentMessage[]);
 
@@ -239,6 +273,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     );
     const runtimeState = createRuntimeRunState({
       runId: input.runId,
+      sessionId: input.sessionId,
       userRequest: input.userRequest,
       intent,
       plan,
@@ -270,6 +305,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     });
     const failedState = createRuntimeRunState({
       runId: input.runId,
+      sessionId: input.sessionId,
       userRequest: input.userRequest,
       intent,
       plan,
@@ -283,8 +319,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
   }
 }
 
-function buildToolsForIntent(
-  intent: RuntimeIntent,
+function buildRuntimeTools(
   runtimeContext: ReturnType<typeof createRuntimeContext>,
   querySynthesizer?: ReturnType<typeof createModelBackedQueryAnswerSynthesizer>,
   knowledgeDraftSynthesizer?: ReturnType<typeof createModelBackedKnowledgePageDraftSynthesizer>
@@ -296,56 +331,76 @@ function buildToolsForIntent(
     createReadRawSourceTool(runtimeContext)
   ];
 
-  switch (intent) {
-    case 'ingest':
-      return [...wikiObserveTools, ...sourceObserveTools, createFindSourceManifestTool(runtimeContext), createIngestSourceTool(runtimeContext)];
-    case 'lint':
-      return [...wikiObserveTools, createLintWikiTool(runtimeContext)];
-    case 'mixed':
-      return [
-        ...wikiObserveTools,
-        ...sourceObserveTools,
-        createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
-        createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-        createApplyDraftUpsertTool(runtimeContext),
-        createFindSourceManifestTool(runtimeContext),
-        createIngestSourceTool(runtimeContext),
-        createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-        createUpsertKnowledgePageTool(runtimeContext),
-        createLintWikiTool(runtimeContext)
-      ];
-    case 'query':
-      return [
-        ...wikiObserveTools,
-        ...sourceObserveTools,
-        createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
-        createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-        createApplyDraftUpsertTool(runtimeContext),
-        createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-        createUpsertKnowledgePageTool(runtimeContext)
-      ];
-  }
+  return [
+    ...wikiObserveTools,
+    ...sourceObserveTools,
+    createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
+    createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+    createApplyDraftUpsertTool(runtimeContext),
+    createFindSourceManifestTool(runtimeContext),
+    createIngestSourceTool(runtimeContext),
+    createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
+    createUpsertKnowledgePageTool(runtimeContext),
+    createLintWikiTool(runtimeContext)
+  ];
 }
 
-function createInitialPrompt(userRequest: string, intent: RuntimeIntent): RuntimeAgentMessage {
+function buildInitialMessages(
+  userContext: Record<string, string>,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+): RuntimeAgentMessage[] {
+  const initialMessages: RuntimeAgentMessage[] = [];
+  const contextReminder = createRuntimeContextReminderMessage(userContext);
+
+  if (contextReminder) {
+    initialMessages.push({
+      role: 'user',
+      content: [{ type: 'text', text: contextReminder }],
+      timestamp: Date.now()
+    });
+  }
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    for (const message of conversationHistory.slice(-8)) {
+      initialMessages.push(
+        message.role === 'user'
+          ? {
+              role: 'user',
+              content: [{ type: 'text', text: message.content }],
+              timestamp: Date.now()
+            }
+          : createSyntheticAssistantHistoryMessage(message.content)
+      );
+    }
+  }
+
+  return initialMessages;
+}
+
+function createSyntheticAssistantHistoryMessage(content: string): Extract<RuntimeAgentMessage, { role: 'assistant' }> {
   return {
-    role: 'user',
-    content: [{ type: 'text', text: buildPromptText(userRequest, intent) }],
+    role: 'assistant',
+    content: [{ type: 'text', text: content }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'runtime-history',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0
+      }
+    },
+    stopReason: 'stop',
     timestamp: Date.now()
   };
-}
-
-function buildPromptText(userRequest: string, intent: RuntimeIntent): string {
-  const toolGuidance =
-    intent === 'ingest'
-      ? 'Start by inspecting wiki pages and source manifests when the source reference is ambiguous. Use list_source_manifests and read_source_manifest or find_source_manifest before ingest_source for loose references, and only ingest when there is a unique strongest candidate.'
-      : intent === 'lint'
-        ? 'Inspect wiki structure first, then use lint_wiki to report findings.'
-        : intent === 'mixed'
-          ? 'Inspect the wiki and sources first, preferably with list_wiki_pages, read_wiki_page, read_raw_source, list_source_manifests, and read_source_manifest. Use read_wiki_page to inspect incoming links and shared-source relationships before synthesizing. For durable page creation, prefer draft_query_page for reusable answers and draft_knowledge_page for other durable pages, then prefer apply_draft_upsert to apply the structured draft payload through governed writeback. Only fall back to direct upsert_knowledge_page when no structured draft is appropriate. Use the minimum safe combination of query_wiki, draft_knowledge_page, draft_query_page, apply_draft_upsert, upsert_knowledge_page, lint_wiki, and ingest_source.'
-          : 'Start with list_wiki_pages using the user request as a navigation query when page selection is unclear, then read_wiki_page and inspect incoming links or shared-source related pages before synthesizing. If the page exposes raw/accepted source refs, follow them with read_raw_source before using query_wiki. When the answer appears durable, prefer draft_query_page first, then apply_draft_upsert; fall back to draft_knowledge_page or direct upsert only when needed.';
-
-  return [`User request: ${userRequest}`, `Detected intent: ${intent}.`, toolGuidance].join(' ');
 }
 
 function getLatestAssistantMessage(messages: RuntimeAgentMessage[]): Extract<RuntimeAgentMessage, { role: 'assistant' }> | undefined {
@@ -376,8 +431,228 @@ function collectAssistantText(messages: RuntimeAgentMessage[], toolOutcomes: Run
   return latestOutcome?.summary ?? '';
 }
 
+function normalizeRuntimeToolOutcome(
+  fallbackToolName: string,
+  result: AgentToolResult<unknown>,
+  isError: boolean
+): RuntimeToolOutcome {
+  const value = result.details;
+
+  if (isRuntimeToolOutcomeLike(value)) {
+    return {
+      ...value,
+      toolName: normalizeToolName(value.toolName, fallbackToolName),
+      summary: normalizeSummary(value.summary, result, fallbackToolName, isError)
+    };
+  }
+
+  return {
+    toolName: fallbackToolName,
+    summary: normalizeSummary(undefined, result, fallbackToolName, isError),
+    resultMarkdown: collectToolResultText(result)
+  };
+}
+
+function isRuntimeToolOutcomeLike(value: unknown): value is RuntimeToolOutcome {
+  return isRecord(value) && (typeof value.toolName === 'string' || typeof value.summary === 'string');
+}
+
+function normalizeToolName(value: unknown, fallbackToolName: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallbackToolName;
+}
+
+function normalizeSummary(
+  value: unknown,
+  result: AgentToolResult<unknown>,
+  fallbackToolName: string,
+  isError: boolean
+): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  const text = collectToolResultText(result);
+
+  if (text.length > 0) {
+    return text;
+  }
+
+  return isError ? `${fallbackToolName} failed` : `${fallbackToolName} completed`;
+}
+
+function collectToolResultText(result: AgentToolResult<unknown>): string {
+  return result.content
+    .filter((block): block is Extract<(typeof result.content)[number], { type: 'text' }> => block.type === 'text')
+    .map((block) => block.text.trim())
+    .filter((text) => text.length > 0)
+    .join('\n\n')
+    .trim();
+}
+
 export function extractRuntimeToolOutcome(result: AgentToolResult<unknown>): RuntimeToolOutcome {
-  return result.details as RuntimeToolOutcome;
+  return normalizeRuntimeToolOutcome('unknown_tool', result, false);
+}
+
+async function tryRunDeterministicIngestShortcut(
+  input: RunRuntimeAgentInput,
+  intent: RuntimeIntent,
+  plan: string[],
+  runtimeContext: ReturnType<typeof createRuntimeContext>
+): Promise<RunRuntimeAgentResult | null> {
+  if (intent !== 'ingest') {
+    return null;
+  }
+
+  const sourcePath = extractAcceptedRawSourcePath(input.userRequest);
+
+  if (!sourcePath) {
+    return null;
+  }
+
+  const events: RequestRunEvent[] = [];
+  const appendEvent = (event: RequestRunEvent) => {
+    events.push(event);
+  };
+
+  appendEvent({
+    type: 'run_started',
+    timestamp: new Date().toISOString(),
+    summary: `Run started for ${intent} request`,
+    status: 'running'
+  });
+  appendEvent({
+    type: 'plan_available',
+    timestamp: new Date().toISOString(),
+    summary: `Plan ready with ${plan.length} step${plan.length === 1 ? '' : 's'}`,
+    status: 'running',
+    data: { plan }
+  });
+  appendEvent({
+    type: 'tool_started',
+    timestamp: new Date().toISOString(),
+    summary: 'Starting ingest_source',
+    status: 'running',
+    tool_name: 'ingest_source',
+    tool_call_id: 'deterministic-ingest-shortcut',
+    data: { sourcePath }
+  });
+
+  try {
+    const manifest = await findAcceptedSourceManifestByPath(input.root, sourcePath);
+    const ingestResult = await runIngestFlow(input.root, {
+      runId: runtimeContext.allocateToolRunId('ingest'),
+      userRequest: `ingest ${sourcePath}`,
+      sourceId: manifest.id
+    });
+    const summary = ingestResult.review.needs_review ? 'ingest requires review' : 'ingest completed';
+    const resultMarkdown = ingestResult.review.needs_review
+      ? `Resolved ${sourcePath} to ${manifest.id}. Queued for review: ${ingestResult.review.reasons.join('; ')}`
+      : `Resolved ${sourcePath} to ${manifest.id}. Persisted: ${ingestResult.persisted.join(', ') || '_none_'}`;
+    const toolOutcomes: RuntimeToolOutcome[] = [
+      {
+        toolName: 'ingest_source',
+        summary,
+        evidence: ingestResult.changeSet.source_refs,
+        touchedFiles: ingestResult.persisted,
+        changeSet: ingestResult.changeSet,
+        needsReview: ingestResult.review.needs_review,
+        reviewReasons: ingestResult.review.reasons,
+        resultMarkdown
+      }
+    ];
+    const toolSummary = `ingest_source: ${summary}`;
+
+    appendEvent({
+      type: 'tool_finished',
+      timestamp: new Date().toISOString(),
+      summary: toolSummary,
+      status: 'running',
+      tool_name: 'ingest_source',
+      tool_call_id: 'deterministic-ingest-shortcut',
+      evidence: toolOutcomes[0].evidence ?? [],
+      touched_files: toolOutcomes[0].touchedFiles ?? []
+    });
+
+    if ((toolOutcomes[0].evidence ?? []).length > 0) {
+      appendEvent({
+        type: 'evidence_added',
+        timestamp: new Date().toISOString(),
+        summary: `ingest_source added ${(toolOutcomes[0].evidence ?? []).length} evidence reference${(toolOutcomes[0].evidence ?? []).length === 1 ? '' : 's'}`,
+        status: 'running',
+        tool_name: 'ingest_source',
+        tool_call_id: 'deterministic-ingest-shortcut',
+        evidence: toolOutcomes[0].evidence ?? []
+      });
+    }
+
+    appendEvent({
+      type: 'draft_updated',
+      timestamp: new Date().toISOString(),
+      summary: 'ingest_source produced operator-visible output',
+      status: 'running',
+      tool_name: 'ingest_source',
+      tool_call_id: 'deterministic-ingest-shortcut',
+      touched_files: toolOutcomes[0].touchedFiles ?? []
+    });
+
+    appendEvent({
+      type: 'run_completed',
+      timestamp: new Date().toISOString(),
+      summary: resultMarkdown,
+      status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+      touched_files: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? [])),
+      evidence: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.evidence ?? []))
+    });
+
+    const runtimeState = createRuntimeRunState({
+      runId: input.runId,
+      sessionId: input.sessionId,
+      userRequest: input.userRequest,
+      intent,
+      plan,
+      toolOutcomes,
+      assistantSummary: resultMarkdown,
+      status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+      events
+    });
+    const savedPaths = await saveRequestRunState(input.root, runtimeState);
+    await syncReviewTask(input.root, runtimeState);
+
+    return {
+      runId: input.runId,
+      intent,
+      plan,
+      assistantText: resultMarkdown,
+      toolOutcomes,
+      savedRunState: savedPaths.runDirectory
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendEvent({
+      type: 'run_failed',
+      timestamp: new Date().toISOString(),
+      summary: message,
+      status: 'failed'
+    });
+    const failedState = createRuntimeRunState({
+      runId: input.runId,
+      sessionId: input.sessionId,
+      userRequest: input.userRequest,
+      intent,
+      plan,
+      toolOutcomes: [],
+      assistantSummary: message,
+      status: 'failed',
+      events
+    });
+    await saveRequestRunState(input.root, failedState);
+    throw error;
+  }
+}
+
+function extractAcceptedRawSourcePath(userRequest: string): string | null {
+  const match = userRequest.match(/raw\/accepted\/[A-Za-z0-9._/-]+/i);
+  return match ? match[0] : null;
 }
 
 function uniqueStrings(values: string[]): string[] {

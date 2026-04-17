@@ -19,13 +19,18 @@ describe('classifyIntent', () => {
     expect(classifyIntent('ingest raw/accepted/design.md and then lint the wiki')).toBe('mixed');
   });
 
-  it('defaults to query for empty requests', () => {
-    expect(classifyIntent('   ')).toBe('query');
+  it('defaults to general chat for empty requests', () => {
+    expect(classifyIntent('   ')).toBe('general');
+  });
+
+  it('treats test-like inputs as general chat instead of wiki query', () => {
+    expect(classifyIntent('test')).toBe('general');
   });
 });
 
 describe('buildIntentPlan', () => {
   it('returns a stable three-step plan for each intent', () => {
+    expect(buildIntentPlan('general')).toHaveLength(3);
     expect(buildIntentPlan('ingest')).toHaveLength(3);
     expect(buildIntentPlan('query')).toHaveLength(3);
     expect(buildIntentPlan('lint')).toHaveLength(3);

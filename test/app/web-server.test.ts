@@ -246,6 +246,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.recent_runs).toEqual([
           {
             run_id: 'run-review-001',
+            session_id: null,
             status: 'needs_review',
             intent: 'query',
             result_summary: 'waiting for review',
@@ -296,6 +297,7 @@ describe('createWebServer', () => {
         expect(runs.body).toEqual([
           {
             run_id: 'run-review-001',
+            session_id: null,
             status: 'needs_review',
             intent: 'query',
             result_summary: 'waiting for review',
@@ -510,12 +512,14 @@ describe('createWebServer', () => {
       );
 
       const server = createWebServer(root, {
-        runRuntimeAgent: async ({ userRequest, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
+        runRuntimeAgent: async ({ userRequest, runId, sessionId, conversationHistory, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
           const { runRuntimeAgent } = await import('../../src/runtime/agent-session.js');
           return await runRuntimeAgent({
             root: runtimeRoot,
             userRequest,
             runId,
+            sessionId,
+            conversationHistory,
             model,
             getApiKey,
             allowQueryWriteback,
@@ -554,6 +558,7 @@ describe('createWebServer', () => {
           ok: boolean;
           intent: string;
           runId: string;
+          session_id: string;
           run_url: string;
           review_url: string;
           task_url: string;
@@ -634,12 +639,14 @@ describe('createWebServer', () => {
       );
 
       const server = createWebServer(root, {
-        runRuntimeAgent: async ({ userRequest, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
+        runRuntimeAgent: async ({ userRequest, runId, sessionId, conversationHistory, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
           const { runRuntimeAgent } = await import('../../src/runtime/agent-session.js');
           return await runRuntimeAgent({
             root: runtimeRoot,
             userRequest,
             runId,
+            sessionId,
+            conversationHistory,
             model,
             getApiKey,
             allowQueryWriteback,
@@ -678,6 +685,7 @@ describe('createWebServer', () => {
           ok: boolean;
           intent: string;
           runId: string;
+          session_id: string;
           run_url: string;
           review_url: string | null;
           task_url: string | null;
@@ -733,6 +741,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.recent_runs).toEqual([
           {
             run_id: launched.body.runId,
+            session_id: launched.body.session_id,
             status: 'done',
             intent: 'mixed',
             result_summary: expect.stringContaining('Persisted: wiki/topics/patch-first.md'),
@@ -785,12 +794,14 @@ describe('createWebServer', () => {
       );
 
       const server = createWebServer(root, {
-        runRuntimeAgent: async ({ userRequest, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
+        runRuntimeAgent: async ({ userRequest, runId, sessionId, conversationHistory, model, getApiKey, allowQueryWriteback, allowLintAutoFix, root: runtimeRoot }) => {
           const { runRuntimeAgent } = await import('../../src/runtime/agent-session.js');
           return await runRuntimeAgent({
             root: runtimeRoot,
             userRequest,
             runId,
+            sessionId,
+            conversationHistory,
             model,
             getApiKey,
             allowQueryWriteback,
@@ -829,6 +840,7 @@ describe('createWebServer', () => {
           ok: boolean;
           intent: string;
           runId: string;
+          session_id: string;
           run_url: string;
           review_url: string | null;
           task_url: string | null;
@@ -922,6 +934,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.recent_runs).toEqual([
           {
             run_id: launched.body.runId,
+            session_id: launched.body.session_id,
             status: 'needs_review',
             intent: 'mixed',
             result_summary: expect.stringContaining('Queued for review: rewrites a core topic page'),
@@ -1000,6 +1013,7 @@ describe('createWebServer', () => {
         expect(runs.body).toEqual([
           {
             run_id: 'run-complete-001',
+            session_id: null,
             status: 'done',
             intent: 'query',
             result_summary: 'answered from wiki',
@@ -1016,6 +1030,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.recent_runs).toEqual([
           {
             run_id: 'run-complete-001',
+            session_id: null,
             status: 'done',
             intent: 'query',
             result_summary: 'answered from wiki',

@@ -21,8 +21,19 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { getRun, getRuns, startChatRun } from '@/lib/api';
-import type { ChatRunStartResponse, RunDetailResponse, RunSummary } from '@/lib/types';
+import {
+  getChatRunUi,
+  getChatSession,
+  getChatSessions,
+  createChatSession,
+  startChatRun
+} from '@/lib/api';
+import type {
+  ChatRunUiState,
+  ChatSessionDetail,
+  ChatSessionSummary,
+  RunDetailResponse
+} from '@/lib/types';
 
 const textHeading = 'text-[#1C2833]';
 
@@ -77,48 +88,79 @@ const toolCategories: ToolCategory[] = [
 
 export function AiChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedRunId = searchParams.get('run');
-  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const selectedSessionId = searchParams.get('session') || searchParams.get('sessionId');
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunDetailResponse | null>(null);
+  const [uiState, setUiState] = useState<ChatRunUiState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [runLoading, setRunLoading] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [input, setInput] = useState('');
   const [, setError] = useState<string | null>(null);
-  const [responseState, setResponseState] = useState<ChatRunStartResponse | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<string[]>(['web_search', 'mcp_fs']);
 
-  async function loadRuns() {
-    const value = await getRuns();
-    setRuns(value);
+  async function loadSessions() {
+    const value = await getChatSessions();
+    setSessions(value);
     return value;
   }
 
-  function updateSelectedRunId(runId: string) {
+  function updateSelectedSessionId(sessionId: string) {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
-      next.set('run', runId);
+      next.set('session', sessionId);
+      next.delete('run');
+      next.delete('sessionId');
       return next;
     });
   }
 
-  async function loadRunDetail(runId: string, options?: { syncUrl?: boolean }) {
-    setRunLoading(true);
+  async function loadSessionDetail(sessionId: string, options?: { syncUrl?: boolean }) {
+    setSessionLoading(true);
     setError(null);
     try {
-      const detail = await getRun(runId);
-      setSelectedRun(detail);
+      const detail = await getChatSession(sessionId);
+      setSelectedSession(detail);
+      const latestRun =
+        detail.runs.find((r) => r.request_run.run_id === detail.session.last_run_id) ||
+        detail.runs[detail.runs.length - 1] ||
+        null;
+      setSelectedRun(latestRun);
+
+      if (latestRun) {
+        try {
+          const ui = await getChatRunUi(latestRun.request_run.run_id);
+          setUiState(ui);
+        } catch (e) {
+          console.warn('Failed to load UI state:', e);
+          setUiState(null);
+        }
+      } else {
+        setUiState(null);
+      }
+
       if (options?.syncUrl !== false) {
-        updateSelectedRunId(runId);
+        updateSelectedSessionId(sessionId);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setRunLoading(false);
+      setSessionLoading(false);
+    }
+  }
+
+  async function handleCreateSession() {
+    try {
+      const newSession = await createChatSession();
+      await loadSessions();
+      await loadSessionDetail(newSession.session_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
@@ -127,10 +169,10 @@ export function AiChatPage() {
       setLoading(true);
       setError(null);
       try {
-        const items = await loadRuns();
-        const initialRunId = selectedRunId ?? items[0]?.run_id ?? null;
-        if (initialRunId) {
-          await loadRunDetail(initialRunId, { syncUrl: !selectedRunId });
+        const items = await loadSessions();
+        const initialSessionId = selectedSessionId ?? items[0]?.session_id ?? null;
+        if (initialSessionId) {
+          await loadSessionDetail(initialSessionId, { syncUrl: !selectedSessionId });
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -143,28 +185,37 @@ export function AiChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRunId || loading || runLoading || selectedRun?.request_run.run_id === selectedRunId) {
+    if (!selectedSessionId || loading || sessionLoading || selectedSession?.session.session_id === selectedSessionId) {
       return;
     }
-    void loadRunDetail(selectedRunId, { syncUrl: false });
-  }, [loading, runLoading, selectedRun, selectedRunId]);
+    void loadSessionDetail(selectedSessionId, { syncUrl: false });
+  }, [loading, sessionLoading, selectedSession, selectedSessionId]);
 
   useEffect(() => {
-    if (!selectedRunId || selectedRun?.request_run.status !== 'running') {
+    if (!selectedSessionId || selectedSession?.session.status !== 'running') {
       return;
     }
 
     const intervalId = setInterval(async () => {
       try {
-        const [detail] = await Promise.all([getRun(selectedRunId), loadRuns()]);
-        setSelectedRun(detail);
+        const [detail] = await Promise.all([getChatSession(selectedSessionId), loadSessions()]);
+        setSelectedSession(detail);
+        const latestRun =
+          detail.runs.find((r) => r.request_run.run_id === detail.session.last_run_id) ||
+          detail.runs[detail.runs.length - 1] ||
+          null;
+        setSelectedRun(latestRun);
+        if (latestRun) {
+          const ui = await getChatRunUi(latestRun.request_run.run_id);
+          setUiState(ui);
+        }
       } catch (error) {
         console.error('Polling error:', error);
       }
     }, 3000);
 
     return () => clearInterval(intervalId);
-  }, [selectedRunId, selectedRun?.request_run.status]);
+  }, [selectedSessionId, selectedSession?.session.status]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -178,24 +229,16 @@ export function AiChatPage() {
     setActiveTools((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
 
-  function queuePrompt(prompt: string) {
-    setInput(prompt);
-    setShowToolMenu(false);
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }
-
-  async function handleSend(event?: FormEvent<HTMLFormElement>) {
+  async function handleSend(event?: FormEvent<HTMLFormElement>, customInput?: string) {
     event?.preventDefault();
-    if (!input.trim() || submitting) return;
+    const prompt = (customInput ?? input).trim();
+    if (!prompt || submitting) return;
 
     setSubmitting(true);
     setError(null);
-    setResponseState(null);
 
     try {
-      const prompt = input.trim();
-      const result = await startChatRun(prompt);
-      setResponseState(result);
+      const result = await startChatRun(prompt, selectedSessionId || undefined);
 
       if (!result.run_id) {
         setSelectedRun(null);
@@ -204,8 +247,8 @@ export function AiChatPage() {
 
       setInput('');
       setIsExpanded(false);
-      await loadRuns();
-      await loadRunDetail(result.run_id);
+      await loadSessions();
+      await loadSessionDetail(result.session_id || selectedSessionId || '', { syncUrl: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -215,7 +258,7 @@ export function AiChatPage() {
 
   const selectedStatusText = useMemo(() => {
     if (submitting) return 'PROCESSING...';
-    switch (selectedRun?.request_run.status) {
+    switch (selectedSession?.session.status) {
       case 'running':
         return 'EXECUTING...';
       case 'needs_review':
@@ -227,7 +270,7 @@ export function AiChatPage() {
       default:
         return 'IDLE';
     }
-  }, [selectedRun, submitting]);
+  }, [selectedSession, submitting]);
 
   const contextLoad = useMemo(() => {
     const count = selectedRun?.events.length ?? 0;
@@ -239,12 +282,12 @@ export function AiChatPage() {
     return Math.max(18, Math.min(100, count * 24));
   }, [selectedRun]);
 
-  const toolSteps = useMemo<ToolStep[]>(() => {
-    if (!selectedRun) return [];
+  function getToolSteps(run: RunDetailResponse | null): ToolStep[] {
+    if (!run) return [];
 
-    const planDetails = selectedRun.request_run.plan.length
-      ? selectedRun.request_run.plan.map((step, index) => `${index + 1}. ${step}`).join('\n')
-      : selectedRun.request_run.intent;
+    const planDetails = run.request_run.plan.length
+      ? run.request_run.plan.map((step, index) => `${index + 1}. ${step}`).join('\n')
+      : run.request_run.intent;
 
     const steps: ToolStep[] = [
       {
@@ -255,7 +298,7 @@ export function AiChatPage() {
       }
     ];
 
-    selectedRun.tool_outcomes.forEach((outcome, index) => {
+    run.tool_outcomes.forEach((outcome, index) => {
       steps.push({
         id: `tool-${index}`,
         label: `TOOL CALL: ${outcome.tool_name.toUpperCase()}`,
@@ -264,25 +307,17 @@ export function AiChatPage() {
       });
     });
 
-    if (selectedRun.request_run.status !== 'running') {
+    if (run.request_run.status !== 'running') {
       steps.push({
         id: 'formatting',
         label: 'FINALIZING...',
         status: 'done',
-        details: selectedRun.request_run.result_summary
+        details: run.request_run.result_summary
       });
     }
 
     return steps;
-  }, [selectedRun]);
-
-  const previewTitle = selectedRun?.request_run.intent.toUpperCase() ?? (responseState?.ok ? responseState.intent.toUpperCase() : null) ?? 'RUN ACCEPTED';
-  const previewBody = useMemo(() => {
-    const source = selectedRun?.result_markdown || selectedRun?.draft_markdown || selectedRun?.request_run.result_summary || responseState?.result_summary || '';
-    return compactPreviewText(source);
-  }, [responseState, selectedRun]);
-
-  const selectedRunSummary = selectedRun?.request_run.result_summary ?? initialAssistantMessage;
+  }
 
   return (
     <div className="h-screen overflow-hidden bg-[#FFFFFF] p-6 font-sans">
@@ -302,16 +337,25 @@ export function AiChatPage() {
               STATUS: {selectedStatusText}
             </p>
 
+            <div className="mb-3 flex shrink-0 items-center justify-between">
+              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">MISSION LOG</h4>
+              <button
+                type="button"
+                onClick={() => void handleCreateSession()}
+                className="text-xs font-bold text-[#66CCFF] hover:underline uppercase"
+              >
+                + NEW MISSION
+              </button>
+            </div>
             <div className="mb-6 min-h-[120px] flex-1 space-y-3 overflow-y-auto pr-1">
-              <h4 className="mb-3 text-sm font-bold uppercase tracking-widest text-gray-400">MISSION LOG</h4>
-              {runs.length ? (
-                runs.map((run) => {
-                  const active = selectedRunId === run.run_id || (!selectedRunId && selectedRun?.request_run.run_id === run.run_id);
+              {sessions.length ? (
+                sessions.map((session) => {
+                  const active = selectedSessionId === session.session_id;
                   return (
                     <button
-                      key={run.run_id}
+                      key={session.session_id}
                       type="button"
-                      onClick={() => void loadRunDetail(run.run_id)}
+                      onClick={() => void loadSessionDetail(session.session_id)}
                       className={`group w-full border-2 p-3 text-left transition-all ${
                         active
                           ? 'border-[#1C2833] bg-[#F0F8FF] shadow-[2px_2px_0_0_#1C2833]'
@@ -320,9 +364,9 @@ export function AiChatPage() {
                     >
                       <div className="mb-1 flex items-center gap-2 text-[#1C2833]">
                         <MessageSquare size={16} className="shrink-0 text-[#66CCFF]" />
-                        <span className="truncate text-md font-bold uppercase">{run.intent}</span>
+                        <span className="truncate text-md font-bold uppercase">{session.title || 'UNTITLED MISSION'}</span>
                       </div>
-                      <p className="line-clamp-2 pl-6 text-[12px] font-bold text-gray-400 uppercase leading-tight">{run.result_summary}</p>
+                      <p className="line-clamp-2 pl-6 text-[12px] font-bold text-gray-400 uppercase leading-tight">{session.summary}</p>
                     </button>
                   );
                 })
@@ -373,7 +417,7 @@ export function AiChatPage() {
           </div>
 
           <div className="flex-1 space-y-8 overflow-y-auto bg-[#F9FCFF] p-8">
-            {!selectedRun && !loading ? (
+            {!selectedSession?.runs.length && !loading && !sessionLoading ? (
               <div className="flex justify-start">
                 <div className="flex max-w-[85%] gap-4">
                   <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
@@ -386,15 +430,58 @@ export function AiChatPage() {
               </div>
             ) : null}
 
-            {selectedRun ? (
-              <div className="flex justify-end">
-                <div className="max-w-[85%] bg-white p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
-                  {selectedRun.request_run.user_request}
-                </div>
-              </div>
-            ) : null}
+            {selectedSession?.runs
+              .map((run) => {
+                const isLatest = run.request_run.run_id === selectedRun?.request_run.run_id;
+                const runToolSteps = getToolSteps(run);
+                const runPreviewTitle = run.request_run.intent.toUpperCase() || 'RUN ACCEPTED';
+                const runPreviewBody = compactPreviewText(
+                  run.result_markdown || run.draft_markdown || run.request_run.result_summary || ''
+                );
 
-            {runLoading ? (
+                return (
+                  <div key={run.request_run.run_id} className="space-y-8">
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] bg-white p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
+                        {run.request_run.user_request}
+                      </div>
+                    </div>
+
+                    {runToolSteps.length ? (
+                      <div className="flex w-full justify-start">
+                        <div className="flex w-full flex-col py-1 pl-14">
+                          {runToolSteps.map((step) => (
+                            <ToolStepItem key={step.id} step={step} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="flex justify-start">
+                      <div className="flex max-w-[85%] gap-4">
+                        <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
+                          <Sparkles size={20} />
+                        </div>
+                        <div className="flex w-full flex-col gap-4">
+                          <div className="w-fit bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
+                            {run.request_run.result_summary}
+                          </div>
+                          {isLatest && uiState && (
+                            <PreviewCard
+                              title={runPreviewTitle}
+                              content={runPreviewBody || run.request_run.result_summary}
+                              uiState={uiState}
+                              onAction={(prompt) => void handleSend(undefined, prompt)}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+            {sessionLoading && !selectedSession ? (
               <div className="flex justify-start">
                 <div className="flex max-w-[85%] gap-4">
                   <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
@@ -402,38 +489,6 @@ export function AiChatPage() {
                   </div>
                   <div className="bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833]">
                     LOADING MISSION DATA...
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {toolSteps.length ? (
-              <div className="flex w-full justify-start">
-                <div className="flex w-full flex-col py-1 pl-14">
-                  {toolSteps.map((step) => (
-                    <ToolStepItem key={step.id} step={step} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {selectedRun ? (
-              <div className="flex justify-start">
-                <div className="flex max-w-[85%] gap-4">
-                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
-                    <Sparkles size={20} />
-                  </div>
-                  <div className="flex w-full flex-col gap-4">
-                    <div className="w-fit bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
-                      {selectedRunSummary}
-                    </div>
-                    <PreviewCard
-                      title={previewTitle}
-                      content={previewBody || selectedRunSummary}
-                      onAccept={() => queuePrompt('Finalize this as a wiki page.')}
-                      onReject={() => queuePrompt('Retry with different evidence.')}
-                      onReply={() => queuePrompt('Continue to next step.')}
-                    />
                   </div>
                 </div>
               </div>
@@ -613,16 +668,16 @@ function ToolStepItem({ step }: { step: ToolStep }) {
 function PreviewCard({
   title,
   content,
-  onAccept,
-  onReject,
-  onReply
+  uiState,
+  onAction
 }: {
   title: string;
   content: string;
-  onAccept: () => void;
-  onReject: () => void;
-  onReply: () => void;
+  uiState: ChatRunUiState | null;
+  onAction: (prompt: string) => void;
 }) {
+  if (!uiState || !uiState.actions.length) return null;
+
   return (
     <div className="mt-2 max-w-[600px] bg-white border-4 border-[#1C2833] shadow-[6px_6px_0_0_#1C2833] animate-in slide-in-from-bottom-2 self-start transform transition-all">
       <div className="flex items-center gap-3 border-b-2 border-[#1C2833] bg-[#F9FCFF] px-4 py-3">
@@ -638,16 +693,23 @@ function PreviewCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 border-t-2 border-[#1C2833] p-4 bg-gray-50">
-        <button type="button" onClick={onAccept} className="pixel-button bg-[#66CCFF] text-lg uppercase">
-          [1] ACCEPT
-        </button>
-        <button type="button" onClick={onReject} className="pixel-button bg-[#FFB7C5] text-lg uppercase">
-          [2] REJECT
-        </button>
-        <button type="button" onClick={onReply} className="col-span-2 pixel-button bg-white text-lg uppercase">
-          [3] SEND FEEDBACK TO LIIY
-        </button>
+      <div className={`grid ${uiState.actions.length > 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-2 border-t-2 border-[#1C2833] p-4 bg-gray-50`}>
+        {uiState.actions.map((action, index) => {
+          let bgColor = 'bg-white';
+          if (action.kind === 'approve') bgColor = 'bg-[#66CCFF]';
+          if (action.kind === 'retry' || action.kind === 'clarify') bgColor = 'bg-[#FFB7C5]';
+
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onAction(action.prompt || action.label)}
+              className={`pixel-button ${bgColor} text-lg uppercase ${uiState.actions.length === 3 && index === 2 ? 'col-span-2' : ''}`}
+            >
+              [{index + 1}] {action.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

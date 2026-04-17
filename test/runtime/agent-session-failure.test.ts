@@ -38,7 +38,7 @@ describe('runRuntimeAgent failure handling', () => {
           lane: 'assistant',
           title: 'Execution plan',
           summary: '3 steps planned',
-          meta: 'inspect the question → query the wiki → summarize the answer with sources'
+          meta: 'inspect whether wiki evidence is actually needed → gather only the necessary wiki or source context → answer clearly and write back only if durable value is obvious'
         },
         {
           lane: 'system',

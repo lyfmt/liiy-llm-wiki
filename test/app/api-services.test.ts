@@ -24,8 +24,11 @@ import {
   loadReviewSummaryDto,
   loadRunDetailResponseDto
 } from '../../src/app/api/services/run.js';
+import { loadChatSessionDetailDto } from '../../src/app/api/services/chat-session.js';
+import { createChatSession } from '../../src/domain/chat-session.js';
 import { createRequestRun } from '../../src/domain/request-run.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
+import { saveChatSession } from '../../src/storage/chat-session-store.js';
 import { saveRequestRunState, type RequestRunState } from '../../src/storage/request-run-state-store.js';
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
 
@@ -128,6 +131,7 @@ describe('app api services', () => {
       expect(runs).toEqual([
         {
           run_id: 'run-review-service-001',
+          session_id: null,
           status: 'needs_review',
           intent: 'mixed',
           result_summary: 'waiting for review',
@@ -539,6 +543,83 @@ describe('app api services', () => {
         status: 'failed',
         result_summary: 'missing run state',
         settings_url: '/api/chat/settings'
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('filters invalid run artifacts out of chat session detail and latest-run selection', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-api-services-'));
+
+    try {
+      await bootstrapProject(root);
+
+      await saveRequestRunState(root, {
+        request_run: createRequestRun({
+          run_id: 'run-valid-001',
+          session_id: 'session-chat-001',
+          user_request: 'valid request',
+          intent: 'query',
+          plan: ['observe'],
+          status: 'done',
+          evidence: ['wiki/topics/patch-first.md'],
+          touched_files: [],
+          decisions: ['query_wiki: answered from wiki'],
+          result_summary: 'valid answer'
+        }),
+        tool_outcomes: [],
+        draft_markdown: '# Draft\n',
+        result_markdown: '# Result\n',
+        changeset: null
+      });
+
+      await saveRequestRunState(root, {
+        request_run: createRequestRun({
+          run_id: 'run-invalid-001',
+          session_id: 'session-chat-001',
+          user_request: 'invalid request',
+          intent: 'query',
+          plan: ['observe'],
+          status: 'done',
+          evidence: [],
+          touched_files: [],
+          decisions: ['query_wiki: should be skipped'],
+          result_summary: 'invalid answer'
+        }),
+        tool_outcomes: [],
+        draft_markdown: '# Draft\n',
+        result_markdown: '# Result\n',
+        changeset: null
+      });
+      await unlink(buildRequestRunArtifactPaths(root, 'run-invalid-001').toolOutcomes);
+
+      await saveChatSession(
+        root,
+        createChatSession({
+          session_id: 'session-chat-001',
+          title: 'Session with invalid run',
+          run_ids: ['run-valid-001', 'run-invalid-001'],
+          last_run_id: 'run-invalid-001',
+          summary: 'session summary',
+          status: 'done'
+        })
+      );
+
+      const detail = await loadChatSessionDetailDto(root, 'session-chat-001');
+      const links = await summarizeChatRunResponseDto(root, 'run-invalid-001');
+
+      expect(detail.session.last_run_id).toBe('run-valid-001');
+      expect(detail.session.run_count).toBe(1);
+      expect(detail.runs.map((run) => run.request_run.run_id)).toEqual(['run-valid-001']);
+      expect(detail.runs[0]?.request_run.result_summary).toBe('valid answer');
+      expect(links).toEqual({
+        run_url: '/api/runs/run-invalid-001',
+        review_url: null,
+        task_url: null,
+        task_id: null,
+        touched_files: [],
+        status: 'running'
       });
     } finally {
       await rm(root, { recursive: true, force: true });

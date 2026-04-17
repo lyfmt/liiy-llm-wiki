@@ -11,6 +11,7 @@ export interface ChangeSetDto {
 
 export interface RunSummaryDto {
   run_id: string;
+  session_id: string | null;
   status: RequestRunStatus;
   intent: string;
   result_summary: string;
@@ -61,6 +62,7 @@ export interface RunTimelineItemDto {
 export interface RunDetailResponseDto {
   request_run: {
     run_id: string;
+    session_id: string | null;
     user_request: string;
     intent: string;
     plan: string[];

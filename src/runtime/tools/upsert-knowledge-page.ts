@@ -36,7 +36,8 @@ export function createUpsertKnowledgePageTool(
   return {
     name: 'upsert_knowledge_page',
     label: 'Upsert Knowledge Page',
-    description: 'Create or update a wiki page through a governed deterministic flow',
+    description:
+      'Create or update a wiki page through a governed deterministic flow. Use only for explicit wiki maintenance or when a durable write is clearly justified. Prefer draft-first flows when possible.',
     parameters,
     execute: async (_toolCallId, params) => {
       const result = await runUpsertKnowledgePageFlow(runtimeContext.root, {

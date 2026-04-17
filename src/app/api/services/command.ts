@@ -72,8 +72,11 @@ export function parseChatSettingsUpdateRequestDto(value: Record<string, unknown>
 }
 
 export function parseChatRunStartRequestDto(value: Record<string, unknown>): ChatRunStartRequestDto {
+  const sessionId = readOptionalStringField(value, 'sessionId');
+
   return {
-    userRequest: readString(value, 'userRequest')
+    userRequest: readString(value, 'userRequest'),
+    ...(sessionId === undefined ? {} : { sessionId })
   };
 }
 

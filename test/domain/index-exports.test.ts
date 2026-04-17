@@ -55,6 +55,7 @@ describe('package entry domain exports', () => {
 
     const requestRun: RequestRun = {
       run_id: 'run-001',
+      session_id: null,
       user_request: 'ingest this source',
       intent: 'ingest',
       plan: [],

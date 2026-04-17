@@ -15,16 +15,56 @@ import {
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 
 import { bootstrapProject } from '../../src/app/bootstrap-project.js';
+import { createChatSession } from '../../src/domain/chat-session.js';
 import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { runRuntimeAgent } from '../../src/runtime/agent-session.js';
 import { runUpsertKnowledgePageFlow } from '../../src/flows/wiki/run-upsert-knowledge-page-flow.js';
 import { saveKnowledgePage } from '../../src/storage/knowledge-page-store.js';
 import { loadRequestRunState } from '../../src/storage/request-run-state-store.js';
+import { saveChatSession } from '../../src/storage/chat-session-store.js';
 import { loadKnowledgeTask } from '../../src/storage/task-store.js';
 import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
 
 describe('runRuntimeAgent', () => {
+  it('supports direct general replies without forcing wiki tools', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+
+    try {
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'test',
+        runId: 'runtime-agent-general-001',
+        model: getModel('anthropic', 'claude-sonnet-4-20250514'),
+        streamFn: createDirectAnswerStream((context) => {
+          const userMessages = context.messages.filter((message) => message.role === 'user');
+          expect(userMessages).toHaveLength(2);
+
+          const reminderMessage = userMessages[0]!;
+          const requestMessage = userMessages[1]!;
+          const reminderText = extractTextFromMessage(reminderMessage);
+          const requestText = extractTextFromMessage(requestMessage);
+
+          expect(reminderText).toContain('<system-reminder>');
+          expect(reminderText).toContain('may or may not be relevant');
+          expect(reminderText).not.toContain('Detected intent:');
+          expect(requestText).toBe('test');
+        })
+      });
+
+      expect(result.intent).toBe('general');
+      expect(result.toolOutcomes).toHaveLength(0);
+      expect(result.assistantText).toContain('Direct response');
+      const runState = await loadRequestRunState(root, 'runtime-agent-general-001');
+      expect(runState.request_run.intent).toBe('general');
+      expect(runState.request_run.status).toBe('done');
+      expect(runState.request_run.decisions).toEqual([]);
+      expect(runState.request_run.result_summary).toContain('Direct response');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs a PI-backed query flow and persists a single runtime snapshot', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
 
@@ -90,7 +130,7 @@ describe('runRuntimeAgent', () => {
           lane: 'assistant',
           title: 'Execution plan',
           summary: '3 steps planned',
-          meta: 'inspect the question → query the wiki → summarize the answer with sources'
+          meta: 'inspect whether wiki evidence is actually needed → gather only the necessary wiki or source context → answer clearly and write back only if durable value is obvious'
         },
         {
           lane: 'system',
@@ -166,6 +206,50 @@ describe('runRuntimeAgent', () => {
         meta: 'run_completed · status: done'
       });
       expect(runState.request_run.result_summary).toContain('Resolved raw/accepted/design.md to src-001.');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses deterministic ingest for direct accepted source-path requests without model access', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design.md'),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'ingest raw/accepted/design.md',
+        runId: 'runtime-agent-direct-ingest-001'
+      });
+
+      expect(result.intent).toBe('ingest');
+      expect(result.toolOutcomes).toHaveLength(1);
+      expect(result.toolOutcomes[0]?.toolName).toBe('ingest_source');
+      expect(result.toolOutcomes[0]?.resultMarkdown).toContain('Resolved raw/accepted/design.md to src-001.');
+      const runState = await loadRequestRunState(root, 'runtime-agent-direct-ingest-001');
+      expect(runState.request_run.status).toBe('done');
+      expect(runState.request_run.result_summary).toContain('Persisted:');
+      expect(runState.request_run.touched_files).toEqual(
+        expect.arrayContaining(['wiki/sources/src-001.md', 'wiki/topics/patch-first-design.md'])
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -254,6 +338,55 @@ describe('runRuntimeAgent', () => {
       expect(result.toolOutcomes[2]?.resultMarkdown).toContain('Patch-first updates keep page structure stable in source form.');
       expect(result.toolOutcomes[3]?.summary).toContain('Patch First (wiki/topics/patch-first.md): Patch-first updates keep page structure stable.');
       expect(result.toolOutcomes[3]?.resultMarkdown).toContain('Synthesis mode: deterministic');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes failed observe-first tool results into persisted runtime outcomes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+
+    try {
+      await saveChatSession(
+        root,
+        createChatSession({
+          session_id: 'session-runtime-005',
+          last_run_id: 'runtime-agent-005',
+          run_ids: ['runtime-agent-005'],
+          summary: 'broken observe-first tool result',
+          status: 'done'
+        })
+      );
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'read the missing patch first page',
+        runId: 'runtime-agent-005',
+        sessionId: 'session-runtime-005',
+        model: getModel('anthropic', 'claude-sonnet-4-20250514'),
+        streamFn: createMissingReadWikiPageStream()
+      });
+
+      expect(result.toolOutcomes).toEqual([
+        expect.objectContaining({
+          toolName: 'read_wiki_page',
+          summary: expect.stringContaining('ENOENT: no such file or directory, open'),
+          resultMarkdown: expect.stringContaining('ENOENT: no such file or directory, open')
+        })
+      ]);
+
+      const runState = await loadRequestRunState(root, 'runtime-agent-005');
+      expect(runState.tool_outcomes).toEqual([
+        expect.objectContaining({
+          order: 1,
+          toolName: 'read_wiki_page',
+          summary: expect.stringContaining('ENOENT: no such file or directory, open'),
+          resultMarkdown: expect.stringContaining('ENOENT: no such file or directory, open')
+        })
+      ]);
+      expect(runState.request_run.decisions).toEqual([
+        expect.stringContaining('read_wiki_page: ENOENT: no such file or directory, open')
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -697,6 +830,34 @@ function createQueryOnlyStream(inspectModel?: (model: ReturnType<typeof getModel
   };
 }
 
+function createDirectAnswerStream(inspectContext?: (context: Context) => void): StreamFn {
+  return async (_model, context) => {
+    inspectContext?.(context);
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage = fauxAssistantMessage('Direct response without wiki lookup.');
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
 function buildToolCallingAssistantMessage(context: Context): AssistantMessage {
   const question = extractQuestion(context.messages[context.messages.length - 1]);
 
@@ -1113,6 +1274,52 @@ function createDraftThenApplyPageStream(): StreamFn {
   };
 }
 
+function createMissingReadWikiPageStream(): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1
+        ? buildReadWikiPageToolCallingAssistantMessage('topic', 'missing-page')
+        : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
 function createTwoTopicUpsertStream(): StreamFn {
   let callCount = 0;
 
@@ -1268,18 +1475,26 @@ function buildFinalAssistantMessage(context: Context): AssistantMessage {
   };
 }
 
-function extractQuestion(message: Context['messages'][number] | undefined): string {
-  if (!message || message.role !== 'user') {
-    return 'what is patch first?';
-  }
-
-  const content = typeof message.content === 'string'
+function extractTextFromMessage(message: Context['messages'][number]): string {
+  return typeof message.content === 'string'
     ? message.content
     : message.content
         .filter((block): block is Extract<(typeof message.content)[number], { type: 'text' }> => block.type === 'text')
         .map((block) => block.text)
         .join(' ');
+}
+
+function extractQuestion(message: Context['messages'][number] | undefined): string {
+  if (!message || message.role !== 'user') {
+    return 'what is patch first?';
+  }
+
+  const content = extractTextFromMessage(message).trim();
+  if (content.includes('<system-reminder>')) {
+    return 'what is patch first?';
+  }
+
   const match = content.match(/User request:\s*(.+?)\s+Detected intent:/i);
 
-  return match?.[1] ?? 'what is patch first?';
+  return match?.[1] ?? (content.length > 0 ? content : 'what is patch first?');
 }

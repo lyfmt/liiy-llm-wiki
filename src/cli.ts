@@ -98,11 +98,23 @@ export async function main(argv = process.argv, dependencies: CliDependencies = 
     await dependencies.bootstrapProject(root);
     const createWebServerImpl = dependencies.createWebServer ?? createWebServer;
     const server = createWebServerImpl(root, {
-      runRuntimeAgent: async ({ root: projectRoot, userRequest, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix }) => {
+      runRuntimeAgent: async ({
+        root: projectRoot,
+        userRequest,
+        runId,
+        sessionId,
+        conversationHistory,
+        model,
+        getApiKey,
+        allowQueryWriteback,
+        allowLintAutoFix
+      }) => {
         return dependencies.runRuntimeAgent({
           root: projectRoot,
           userRequest,
           runId,
+          sessionId,
+          conversationHistory,
           model,
           getApiKey,
           allowQueryWriteback,

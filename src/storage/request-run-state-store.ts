@@ -51,6 +51,7 @@ export interface RequestRunState {
 
 interface StoredRequestRecord {
   run_id: string;
+  session_id: string | null;
   user_request: string;
   intent: string;
 }
@@ -71,6 +72,7 @@ export async function saveRequestRunState(
   await mkdir(paths.runDirectory, { recursive: true });
   await writeJson(paths.request, {
     run_id: state.request_run.run_id,
+    session_id: state.request_run.session_id,
     user_request: state.request_run.user_request,
     intent: state.request_run.intent
   });
@@ -147,6 +149,7 @@ export async function loadRequestRunState(root: string, runId: string): Promise<
   return {
     request_run: createRequestRun({
       run_id: request.run_id,
+      session_id: request.session_id,
       user_request: request.user_request,
       intent: request.intent,
       plan,
@@ -182,6 +185,10 @@ function assertStoredRequestRecord(
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
 
+  if (value.session_id !== undefined && value.session_id !== null && typeof value.session_id !== 'string') {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
   if (typeof value.user_request !== 'string') {
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
@@ -192,6 +199,7 @@ function assertStoredRequestRecord(
 
   return {
     run_id: value.run_id,
+    session_id: value.session_id ?? null,
     user_request: value.user_request,
     intent: value.intent
   };

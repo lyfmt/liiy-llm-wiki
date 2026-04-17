@@ -1,4 +1,5 @@
 import { getEnvApiKey, getModel, getModels, getProviders, type Api, type KnownProvider, type Model } from '@mariozechner/pi-ai';
+import { URL } from 'node:url';
 
 import { createChatSettings, type ChatModelApi, type ChatSettings } from '../domain/chat-settings.js';
 import { loadProjectEnvSync } from '../storage/project-env-store.js';
@@ -46,6 +47,20 @@ export interface RuntimeModelCatalog {
   defaultProvider: string;
   providers: RuntimeModelCatalogProvider[];
   selected: RuntimeModelCatalogSelected;
+  discovery: {
+    mode: 'catalog' | 'runtime';
+    discoverable: boolean;
+    source: 'builtin_catalog' | 'remote_probe';
+    error: string | null;
+  };
+}
+
+export interface RuntimeModelDiscoveryInput {
+  provider?: string;
+  api?: ChatModelApi;
+  base_url?: string;
+  api_key_env?: string;
+  root?: string;
 }
 
 export function resolveRuntimeModel(
@@ -111,8 +126,121 @@ export function listRuntimeModelCatalog(settingsInput?: ChatSettings): RuntimeMo
       ...(settings.reasoning === undefined ? {} : { reasoning: settings.reasoning }),
       ...(settings.context_window === undefined ? {} : { context_window: settings.context_window }),
       ...(settings.max_tokens === undefined ? {} : { max_tokens: settings.max_tokens })
+    },
+    discovery: {
+      mode: 'catalog',
+      discoverable: false,
+      source: 'builtin_catalog',
+      error: null
     }
   };
+}
+
+export async function discoverRuntimeModelCatalog(input: RuntimeModelDiscoveryInput): Promise<RuntimeModelCatalog> {
+  const settings = createChatSettings({
+    model: 'gpt-5.4',
+    provider: input.provider,
+    api: input.api,
+    base_url: input.base_url,
+    api_key_env: input.api_key_env
+  });
+  const fallback = listRuntimeModelCatalog(settings);
+
+  if (!input.base_url?.trim()) {
+    return fallback;
+  }
+
+  try {
+    const normalizedBaseUrl = normalizeBaseUrlForApi(input.base_url, input.api ?? inferApiFromProvider(input.provider ?? 'openai'));
+    const endpoint = buildModelDiscoveryUrl(normalizedBaseUrl, input.api ?? settings.api ?? 'openai-completions');
+    const response = await fetch(endpoint, {
+      headers: buildDiscoveryHeaders({
+        provider: input.provider ?? settings.provider ?? 'openai',
+        apiKey: resolveApiKey(settings, input.provider ?? settings.provider ?? 'openai', input.root ? loadProjectEnvSync(input.root).values : undefined)
+      })
+    });
+
+    if (!response.ok) {
+      return {
+        ...fallback,
+        discovery: {
+          mode: 'catalog',
+          discoverable: false,
+          source: 'builtin_catalog',
+          error: `Remote discovery failed with ${response.status}`
+        }
+      };
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ id?: string; name?: string }>;
+      models?: Array<{ id?: string; name?: string }>;
+    };
+    const remoteModels = (payload.data ?? payload.models ?? [])
+      .map((entry) => ({
+        id: entry.id?.trim() ?? '',
+        name: entry.name?.trim() || entry.id?.trim() || ''
+      }))
+      .filter((entry) => entry.id.length > 0);
+
+    if (remoteModels.length === 0) {
+      return {
+        ...fallback,
+        discovery: {
+          mode: 'catalog',
+          discoverable: false,
+          source: 'builtin_catalog',
+          error: 'Remote runtime does not expose model enumeration.'
+        }
+      };
+    }
+
+    const providerId = input.provider ?? settings.provider ?? fallback.selected.provider;
+    const providerEntry: RuntimeModelCatalogProvider = {
+      id: providerId,
+      models: remoteModels.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        provider: providerId,
+        api: input.api ?? settings.api ?? inferApiFromProvider(providerId),
+        base_url: input.base_url ?? settings.base_url ?? '',
+        ...(input.api_key_env ?? settings.api_key_env ? { api_key_env: input.api_key_env ?? settings.api_key_env } : {}),
+        reasoning: settings.reasoning ?? inferReasoning(input.api ?? settings.api ?? inferApiFromProvider(providerId), entry.id),
+        context_window: settings.context_window ?? inferContextWindow(input.api ?? settings.api ?? inferApiFromProvider(providerId)),
+        max_tokens: settings.max_tokens ?? inferMaxTokens(input.api ?? settings.api ?? inferApiFromProvider(providerId)),
+        built_in: false,
+        selected: entry.id === fallback.selected.model
+      }))
+    };
+
+    return {
+      defaultProvider: fallback.defaultProvider,
+      providers: [providerEntry],
+      selected: {
+        provider: providerId,
+        model: fallback.selected.model,
+        ...(input.api ?? settings.api ? { api: input.api ?? settings.api } : {}),
+        ...(input.base_url ?? settings.base_url ? { base_url: input.base_url ?? settings.base_url } : {}),
+        ...(input.api_key_env ?? settings.api_key_env ? { api_key_env: input.api_key_env ?? settings.api_key_env } : {})
+      },
+      discovery: {
+        mode: 'runtime',
+        discoverable: true,
+        source: 'remote_probe',
+        error: null
+      }
+    };
+  } catch (error: unknown) {
+    return {
+      ...fallback,
+      discovery: {
+        mode: 'catalog',
+        discoverable: false,
+        source: 'builtin_catalog',
+        error: error instanceof Error ? error.message : String(error)
+      }
+    };
+  }
 }
 
 function buildCustomModel(
@@ -397,6 +525,37 @@ function ensureBaseUrlHasScheme(baseUrl: string): string {
   }
 
   return `http://${baseUrl.replace(/^\/+/, '')}`;
+}
+
+function buildDiscoveryHeaders(input: { provider: string; apiKey?: string }): Record<string, string> {
+  if (!input.apiKey) {
+    return { accept: 'application/json' };
+  }
+
+  if (input.provider === 'anthropic' || input.provider === 'llm-wiki-liiy') {
+    return {
+      accept: 'application/json',
+      'x-api-key': input.apiKey,
+      'anthropic-version': '2023-06-01'
+    };
+  }
+
+  return {
+    accept: 'application/json',
+    authorization: `Bearer ${input.apiKey}`
+  };
+}
+
+function buildModelDiscoveryUrl(baseUrl: string, api: ChatModelApi): string {
+  const url = new URL(baseUrl);
+
+  if (api === 'anthropic-messages') {
+    url.pathname = '/v1/models';
+    return url.toString();
+  }
+
+  url.pathname = '/v1/models';
+  return url.toString();
 }
 
 function inferReasoning(api: ChatModelApi, modelId: string): boolean {

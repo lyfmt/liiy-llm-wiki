@@ -19,7 +19,7 @@ describe('main', () => {
         JSON.stringify(
           {
             root,
-            directories: 19,
+            directories: 20,
             files: 8
           },
           null,
@@ -34,7 +34,7 @@ describe('main', () => {
         JSON.stringify(
           {
             root,
-            directories: 19,
+            directories: 20,
             files: 0
           },
           null,

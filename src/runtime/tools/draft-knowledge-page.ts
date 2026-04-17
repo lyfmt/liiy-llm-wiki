@@ -101,7 +101,7 @@ export function createDraftKnowledgePageTool(
     name: 'draft_knowledge_page',
     label: 'Draft Knowledge Page',
     description:
-      'Prepare a source-backed knowledge page draft without mutating the wiki; preferred precursor to apply_draft_upsert for durable non-query pages',
+      'Prepare a durable source-backed knowledge page draft without mutating the wiki. Use only for explicit wiki maintenance or when the result clearly deserves long-term preservation. Preferred precursor to apply_draft_upsert for durable non-query pages.',
     parameters,
     execute: async (_toolCallId, params) => {
       const pagePath = buildPagePath(params.kind as KnowledgePageKind, params.slug);

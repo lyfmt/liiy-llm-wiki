@@ -19,6 +19,7 @@ export function toRunSummaryDto(input: {
 }): RunSummaryDto {
   return {
     run_id: input.run_id,
+    session_id: input.state.request_run.session_id,
     status: input.state.request_run.status,
     intent: input.state.request_run.intent,
     result_summary: input.state.request_run.result_summary,
@@ -54,6 +55,7 @@ export function toRunDetailResponseDto(state: RequestRunState): RunDetailRespons
   return {
     request_run: {
       run_id: state.request_run.run_id,
+      session_id: state.request_run.session_id,
       user_request: state.request_run.user_request,
       intent: state.request_run.intent,
       plan: [...state.request_run.plan],

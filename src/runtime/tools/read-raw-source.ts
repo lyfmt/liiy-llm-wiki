@@ -15,7 +15,8 @@ export function createReadRawSourceTool(runtimeContext: RuntimeContext): AgentTo
   return {
     name: 'read_raw_source',
     label: 'Read Raw Source',
-    description: 'Read an accepted raw source document from raw/accepted/',
+    description:
+      'Read an accepted raw source document when a wiki page or source reference points to it and the raw evidence matters. Not for casual chat or speculative browsing without a concrete evidence need.',
     parameters,
     execute: async (_toolCallId, params) => {
       const body = await readRawDocument(runtimeContext.root, params.rawPath);

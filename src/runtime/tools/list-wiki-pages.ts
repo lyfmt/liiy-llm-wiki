@@ -26,7 +26,8 @@ export function createListWikiPagesTool(runtimeContext: RuntimeContext): AgentTo
   return {
     name: 'list_wiki_pages',
     label: 'List Wiki Pages',
-    description: 'List wiki pages and their navigation metadata by kind',
+    description:
+      'Explore the wiki structure and locate potentially relevant pages before deep reading. Start here when you need orientation inside the knowledge base. Skip this tool when the request does not require wiki knowledge.',
     parameters,
     execute: async (_toolCallId, params) => {
       const allKinds = ['source', 'entity', 'topic', 'query'] satisfies KnowledgePageKind[];

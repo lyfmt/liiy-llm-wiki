@@ -7,6 +7,8 @@ export interface ApiRouteDependencies {
     root: string;
     userRequest: string;
     runId: string;
+    sessionId?: string;
+    conversationHistory?: RunRuntimeAgentInput['conversationHistory'];
     model?: RunRuntimeAgentInput['model'];
     getApiKey?: RunRuntimeAgentInput['getApiKey'];
     allowQueryWriteback?: boolean;

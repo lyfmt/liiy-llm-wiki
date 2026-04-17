@@ -1,4 +1,5 @@
 import type {
+  ChatActionDto,
   ChatModelCatalogEntryDto,
   ChatModelsResponseDto,
   ChatOperationsSummaryDto,
@@ -6,6 +7,9 @@ import type {
   ChatRunCompletedResponseDto,
   ChatRunFailedResponseDto,
   ChatRunLinkSummaryDto,
+  ChatRunUiStateDto,
+  ChatSessionDetailDto,
+  ChatSessionSummaryDto,
   ChatSettingsDto,
   ChatSettingsResponseDto,
   ChatSettingsUpdateResponseDto,
@@ -103,6 +107,12 @@ export function toChatModelsResponseDto(catalog: RuntimeModelCatalog): ChatModel
       ...(catalog.selected.reasoning === undefined ? {} : { reasoning: catalog.selected.reasoning }),
       ...(catalog.selected.context_window === undefined ? {} : { context_window: catalog.selected.context_window }),
       ...(catalog.selected.max_tokens === undefined ? {} : { max_tokens: catalog.selected.max_tokens })
+    },
+    discovery: {
+      mode: catalog.discovery.mode,
+      discoverable: catalog.discovery.discoverable,
+      source: catalog.discovery.source,
+      error: catalog.discovery.error
     }
   };
 }
@@ -127,6 +137,7 @@ export function toChatRunLinkSummaryDto(input: {
 
 export function toAcceptedChatRunResponseDto(input: {
   runId: string;
+  session_id: string;
   intent: string;
   status: RequestRunStatus;
   result_summary: string;
@@ -139,6 +150,7 @@ export function toAcceptedChatRunResponseDto(input: {
     accepted: true,
     runId: input.runId,
     run_id: input.runId,
+    session_id: input.session_id,
     intent: input.intent,
     status: input.status,
     result_summary: input.result_summary,
@@ -161,6 +173,7 @@ export function toCompletedChatRunResponseDto(input: {
     ok: true,
     runId: input.run_id,
     run_id: input.run_id,
+    session_id: input.state.request_run.session_id,
     intent: input.state.request_run.intent,
     plan: [...input.state.request_run.plan],
     result_summary: input.state.request_run.result_summary,
@@ -180,6 +193,7 @@ export function toFailedChatRunResponseDto(input: {
   code: 'missing_api_key' | 'runtime_error';
   error: string;
   run_id: string | null;
+  session_id?: string | null;
   links: ChatRunLinkSummaryDto;
   result_summary: string;
   config_hint: string;
@@ -194,6 +208,7 @@ export function toFailedChatRunResponseDto(input: {
     code: input.code,
     error: input.error,
     run_id: input.run_id,
+    ...(input.session_id === undefined ? {} : { session_id: input.session_id }),
     ...input.links,
     result_summary: input.result_summary,
     config_hint: input.config_hint,
@@ -202,6 +217,26 @@ export function toFailedChatRunResponseDto(input: {
     ...(input.provider === undefined ? {} : { provider: input.provider }),
     ...(input.base_url === undefined ? {} : { base_url: input.base_url }),
     ...(input.missing_api_key_env === undefined ? {} : { missing_api_key_env: input.missing_api_key_env })
+  };
+}
+
+export function toChatSessionSummaryDto(input: ChatSessionSummaryDto): ChatSessionSummaryDto {
+  return {
+    ...input
+  };
+}
+
+export function toChatSessionDetailDto(input: ChatSessionDetailDto): ChatSessionDetailDto {
+  return {
+    session: toChatSessionSummaryDto(input.session),
+    runs: input.runs.map((run) => ({ ...run }))
+  };
+}
+
+export function toChatRunUiStateDto(input: ChatRunUiStateDto): ChatRunUiStateDto {
+  return {
+    ui_state: input.ui_state,
+    actions: input.actions.map((action): ChatActionDto => ({ ...action }))
   };
 }
 

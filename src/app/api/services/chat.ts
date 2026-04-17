@@ -1,6 +1,6 @@
 import { buildReviewTaskId } from '../../../flows/review/sync-review-task.js';
 import type { ChatSettings } from '../../../domain/chat-settings.js';
-import { listRuntimeModelCatalog, resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
+import { discoverRuntimeModelCatalog, listRuntimeModelCatalog, resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
 import { loadChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv } from '../../../storage/project-env-store.js';
 import { loadRequestRunState } from '../../../storage/request-run-state-store.js';
@@ -27,10 +27,34 @@ const suggestedRequests = [
   'Ingest raw/accepted/design.md into the wiki and report whether the change was applied or queued for review.'
 ] as const;
 
-export async function buildChatModelsResponseDto(root: string): Promise<ChatModelsResponseDto> {
+export async function buildChatModelsResponseDto(
+  root: string,
+  overrides?: {
+    provider?: string;
+    api?: ChatSettings['api'];
+    base_url?: string;
+    api_key_env?: string;
+    discover?: boolean;
+  }
+): Promise<ChatModelsResponseDto> {
   const settings = await loadChatSettings(root);
+  const catalog = overrides?.discover
+    ? await discoverRuntimeModelCatalog({
+        root,
+        provider: overrides.provider ?? settings.provider,
+        api: overrides.api ?? settings.api,
+        base_url: overrides.base_url ?? settings.base_url,
+        api_key_env: overrides.api_key_env ?? settings.api_key_env
+      })
+    : listRuntimeModelCatalog({
+        ...settings,
+        ...(overrides?.provider === undefined ? {} : { provider: overrides.provider }),
+        ...(overrides?.api === undefined ? {} : { api: overrides.api }),
+        ...(overrides?.base_url === undefined ? {} : { base_url: overrides.base_url }),
+        ...(overrides?.api_key_env === undefined ? {} : { api_key_env: overrides.api_key_env })
+      });
 
-  return toChatModelsResponseDto(listRuntimeModelCatalog(settings));
+  return toChatModelsResponseDto(catalog);
 }
 
 export async function buildChatOperationsSummaryDto(root: string): Promise<ChatOperationsSummaryDto> {

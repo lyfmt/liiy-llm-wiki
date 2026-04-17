@@ -142,6 +142,7 @@ describe('saveRequestRunState', () => {
 
       expect(JSON.parse(await readFile(paths.request, 'utf8'))).toEqual({
         run_id: 'run-001',
+        session_id: null,
         user_request: 'ingest this source',
         intent: 'ingest'
       });
@@ -465,6 +466,7 @@ describe('request run state storage', () => {
       expect(loaded).toEqual({
         request_run: {
           run_id: 'run-001',
+          session_id: null,
           user_request: 'answer this question',
           intent: 'query',
           plan: ['read wiki', 'draft answer'],

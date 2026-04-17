@@ -41,7 +41,8 @@ export function createApplyDraftUpsertTool(runtimeContext: RuntimeContext): Agen
   return {
     name: 'apply_draft_upsert',
     label: 'Apply Draft Upsert',
-    description: 'Apply a machine-readable draft payload through governed page upsert; preferred follow-up after draft_query_page or draft_knowledge_page',
+    description:
+      'Apply a previously prepared structured wiki draft through the governed write path. Use only after the draft content and rationale are already clear. Not for exploratory or purely conversational responses.',
     parameters,
     execute: async (toolCallId, params) => {
       const result = await upsertTool.execute(toolCallId, params.upsertArguments as UpsertKnowledgePageParameters);

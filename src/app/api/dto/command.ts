@@ -58,4 +58,5 @@ export interface ChatSettingsUpdateRequestDto {
 
 export interface ChatRunStartRequestDto {
   userRequest: string;
+  sessionId?: string;
 }
