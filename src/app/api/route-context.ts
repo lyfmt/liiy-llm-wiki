@@ -9,6 +9,8 @@ export interface ApiRouteDependencies {
     runId: string;
     sessionId?: string;
     conversationHistory?: RunRuntimeAgentInput['conversationHistory'];
+    currentUserMessage?: RunRuntimeAgentInput['currentUserMessage'];
+    attachments?: RunRuntimeAgentInput['attachments'];
     model?: RunRuntimeAgentInput['model'];
     getApiKey?: RunRuntimeAgentInput['getApiKey'];
     allowQueryWriteback?: boolean;

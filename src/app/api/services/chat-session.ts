@@ -9,6 +9,8 @@ import {
 } from '../../../domain/chat-session.js';
 import type { RequestRunState } from '../../../storage/request-run-state-store.js';
 import { listChatSessions, loadChatSession, saveChatSession } from '../../../storage/chat-session-store.js';
+import { buildUserMessageWithAttachments } from '../../../runtime/chat-attachment-content.js';
+import type { RuntimeConversationMessage } from '../../../runtime/chat-message-content.js';
 import { listRunSummariesDto, loadRunDetailResponseDto } from './run.js';
 
 export async function createChatSessionForRequest(root: string, userRequest: string): Promise<ChatSession> {
@@ -86,9 +88,9 @@ export async function loadChatSessionDetailDto(root: string, sessionId: string) 
   };
 }
 
-export async function buildChatConversationHistory(root: string, sessionId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+export async function buildChatConversationHistory(root: string, sessionId: string): Promise<RuntimeConversationMessage[]> {
   const session = await loadChatSession(root, sessionId);
-  const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const history: RuntimeConversationMessage[] = [];
 
   for (const runId of session.run_ids.slice(-6)) {
     const run = await loadRunDetailResponseDtoIfExists(root, runId);
@@ -97,7 +99,9 @@ export async function buildChatConversationHistory(root: string, sessionId: stri
       continue;
     }
 
-    history.push({ role: 'user', content: run.request_run.user_request });
+    history.push(
+      await buildUserMessageWithAttachments(root, run.request_run.user_request, run.request_run.attachments)
+    );
     if (run.request_run.result_summary.trim()) {
       history.push({ role: 'assistant', content: run.request_run.result_summary });
     }

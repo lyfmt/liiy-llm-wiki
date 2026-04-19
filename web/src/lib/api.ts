@@ -1,4 +1,5 @@
 import type {
+  ChatAttachmentUploadResponse,
   ChatOperationsSummary,
   ChatRunStartResponse,
   ChatRunUiState,
@@ -82,13 +83,21 @@ function isChatRunStartResponse(value: unknown): value is ChatRunStartResponse {
   );
 }
 
-export async function startChatRun(userRequest: string, sessionId?: string): Promise<ChatRunStartResponse> {
+export async function startChatRun(
+  userRequest: string,
+  sessionId?: string,
+  attachmentIds?: string[]
+): Promise<ChatRunStartResponse> {
   const response = await fetch('/api/chat/runs', {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
-    body: JSON.stringify({ userRequest, ...(sessionId ? { sessionId } : {}) })
+    body: JSON.stringify({
+      userRequest,
+      ...(sessionId ? { sessionId } : {}),
+      ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {})
+    })
   });
 
   const contentType = response.headers.get('content-type') ?? '';
@@ -102,6 +111,15 @@ export async function startChatRun(userRequest: string, sessionId?: string): Pro
 
   const text = await response.text();
   throw new Error(text || `Request failed: ${response.status}`);
+}
+
+export function uploadChatAttachment(payload: {
+  sessionId?: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+}): Promise<ChatAttachmentUploadResponse> {
+  return sendJson<ChatAttachmentUploadResponse>('/api/chat/uploads', 'POST', payload);
 }
 
 export function getRuns(): Promise<RunSummary[]> {

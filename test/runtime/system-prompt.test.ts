@@ -24,4 +24,23 @@ describe('buildRuntimeSystemPrompt', () => {
     expect(prompt).toContain('Do not automatically continue to read_wiki_page after listing.');
     expect(prompt).toContain('A page listing is itself evidence about whether the wiki likely contains relevant knowledge.');
   });
+
+  it('injects available project skill summaries without inlining full skill bodies', () => {
+    const prompt = buildRuntimeSystemPrompt('mixed', {
+      skills: [
+        {
+          name: 'source-to-wiki',
+          description: 'Turn source material into governed wiki drafts.',
+          allowedTools: [],
+          filePath: '/project/.agents/skills/source-to-wiki/SKILL.md',
+          baseDir: '/project/.agents/skills/source-to-wiki'
+        }
+      ]
+    });
+
+    expect(prompt).toContain('# Available Skills');
+    expect(prompt).toContain('source-to-wiki');
+    expect(prompt).toContain('Turn source material into governed wiki drafts.');
+    expect(prompt).not.toContain('# Source To Wiki');
+  });
 });

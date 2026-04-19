@@ -1,4 +1,5 @@
 import { createRequestRun, type RequestRun } from '../domain/request-run.js';
+import type { ChatAttachmentRef } from '../domain/chat-attachment.js';
 import type { ChangeSet } from '../domain/change-set.js';
 import { evaluateReviewGate } from '../policies/review-gate.js';
 import type {
@@ -35,6 +36,7 @@ export interface CreateRuntimeRunStateInput {
   status?: RequestRun['status'];
   events?: RequestRunEvent[];
   timelineItems?: RequestRunTimelineItem[];
+  attachments?: ChatAttachmentRef[];
 }
 
 export function createRuntimeRunState(input: CreateRuntimeRunStateInput): RequestRunState {
@@ -61,7 +63,8 @@ export function createRuntimeRunState(input: CreateRuntimeRunStateInput): Reques
     evidence,
     touched_files: touchedFiles,
     decisions,
-    result_summary: input.assistantSummary
+    result_summary: input.assistantSummary,
+    attachments: input.attachments ?? []
   });
 
   return {
@@ -102,6 +105,15 @@ function buildTimelineItems(input: CreateRuntimeRunStateInput, requestRun: Reque
       title: 'Execution plan',
       summary: `${requestRun.plan.length} step${requestRun.plan.length === 1 ? '' : 's'} planned`,
       meta: requestRun.plan.join(' → ')
+    });
+  }
+
+  if (requestRun.attachments.length > 0) {
+    items.push({
+      lane: 'user',
+      title: 'Attached files',
+      summary: requestRun.attachments.map((attachment) => attachment.file_name).join(', '),
+      meta: `${requestRun.attachments.length} attachment${requestRun.attachments.length === 1 ? '' : 's'}`
     });
   }
 

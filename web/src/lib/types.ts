@@ -196,6 +196,12 @@ export interface RunDetailResponse {
     touched_files: string[];
     decisions: string[];
     result_summary: string;
+    attachments: Array<{
+      attachment_id: string;
+      file_name: string;
+      mime_type: string;
+      kind: 'image' | 'pdf' | 'text';
+    }>;
   };
   tool_outcomes: RunDetailToolOutcome[];
   events: RunDetailEvent[];
@@ -359,6 +365,19 @@ export interface ChatRunUiState {
 }
 
 export type ChatRunStartResponse = ChatRunAcceptedResponse | ChatRunCompletedResponse | ChatRunFailedResponse;
+
+export interface ChatAttachmentRef {
+  attachment_id: string;
+  file_name: string;
+  mime_type: string;
+  kind: 'image' | 'pdf' | 'text';
+}
+
+export interface ChatAttachmentUploadResponse {
+  ok: true;
+  session_id: string;
+  attachment: ChatAttachmentRef;
+}
 
 export interface TaskSummary {
   id: string;

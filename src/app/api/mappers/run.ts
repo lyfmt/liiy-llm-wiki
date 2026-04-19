@@ -1,6 +1,7 @@
 import type { ChangeSet } from '../../../domain/change-set.js';
 import type { RequestRunEvent, RequestRunState, RequestRunTimelineItem } from '../../../storage/request-run-state-store.js';
 import type {
+  ChatAttachmentRefDto,
   ChangeSetDto,
   ChangeSetSummaryDto,
   ReviewDecisionResponseDto,
@@ -63,7 +64,13 @@ export function toRunDetailResponseDto(state: RequestRunState): RunDetailRespons
       evidence: [...state.request_run.evidence],
       touched_files: [...state.request_run.touched_files],
       decisions: [...state.request_run.decisions],
-      result_summary: state.request_run.result_summary
+      result_summary: state.request_run.result_summary,
+      attachments: state.request_run.attachments.map((attachment): ChatAttachmentRefDto => ({
+        attachment_id: attachment.attachment_id,
+        file_name: attachment.file_name,
+        mime_type: attachment.mime_type,
+        kind: attachment.kind
+      }))
     },
     tool_outcomes: state.tool_outcomes.map((outcome): RunDetailToolOutcomeDto => ({
       order: outcome.order,

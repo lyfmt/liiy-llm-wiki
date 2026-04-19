@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import type { DiscoveryItemDto, DiscoveryResponseDto, DiscoverySectionDto } from '../dto/discovery.js';
 import type { KnowledgePage } from '../../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../../storage/list-knowledge-pages.js';
-import { loadKnowledgePage } from '../../../storage/knowledge-page-store.js';
+import { loadKnowledgePageMetadata } from '../../../storage/knowledge-page-store.js';
 import { buildProjectPaths } from '../../../config/project-paths.js';
 
 export async function buildDiscoveryResponseDto(root: string): Promise<DiscoveryResponseDto> {
@@ -32,13 +32,13 @@ async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
   ]);
 
   const loaded = await Promise.all([
-    ...sources.map((slug) => loadKnowledgePage(root, 'source', slug)),
-    ...entities.map((slug) => loadKnowledgePage(root, 'entity', slug)),
-    ...topics.map((slug) => loadKnowledgePage(root, 'topic', slug)),
-    ...queries.map((slug) => loadKnowledgePage(root, 'query', slug))
+    ...sources.map((slug) => loadKnowledgePageMetadata(root, 'source', slug)),
+    ...entities.map((slug) => loadKnowledgePageMetadata(root, 'entity', slug)),
+    ...topics.map((slug) => loadKnowledgePageMetadata(root, 'topic', slug)),
+    ...queries.map((slug) => loadKnowledgePageMetadata(root, 'query', slug))
   ]);
 
-  return loaded.map((entry) => entry.page);
+  return loaded;
 }
 
 function buildDiscoverySections(pages: KnowledgePage[]): DiscoverySectionDto[] {

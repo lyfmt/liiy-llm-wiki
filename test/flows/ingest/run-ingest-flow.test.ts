@@ -9,11 +9,10 @@ import { createSourceManifest } from '../../../src/domain/source-manifest.js';
 import { runIngestFlow } from '../../../src/flows/ingest/run-ingest-flow.js';
 import { loadKnowledgePage, saveKnowledgePage } from '../../../src/storage/knowledge-page-store.js';
 import { loadRequestRunState } from '../../../src/storage/request-run-state-store.js';
-import { loadKnowledgeTask } from '../../../src/storage/task-store.js';
 import { saveSourceManifest } from '../../../src/storage/source-manifest-store.js';
 
 describe('runIngestFlow', () => {
-  it('persists source/topic pages, updates navigation, and records the ingest run for a new accepted source', async () => {
+  it('persists only the source page, updates navigation, and records the ingest run for a new accepted source', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-ingest-'));
 
     try {
@@ -43,26 +42,23 @@ describe('runIngestFlow', () => {
       expect(result.review).toEqual({ needs_review: false, reasons: [] });
       expect(result.persisted).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
       expect(result.changeSet.target_files).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
 
       const sourcePage = await loadKnowledgePage(root, 'source', 'src-001');
-      const topicPage = await loadKnowledgePage(root, 'topic', 'patch-first-design');
       const runState = await loadRequestRunState(root, 'run-001');
 
       expect(sourcePage.page.source_refs).toEqual(['raw/accepted/design.md']);
-      expect(sourcePage.page.outgoing_links).toEqual(['wiki/topics/patch-first-design.md']);
-      expect(topicPage.page.source_refs).toEqual(['raw/accepted/design.md']);
-      expect(topicPage.body).toContain('Patch-first updates keep page structure stable.');
-      expect(await readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).toContain(
+      expect(sourcePage.page.outgoing_links).toEqual([]);
+      expect(sourcePage.body).toContain('Patch-first updates keep page structure stable.');
+      await expect(loadKnowledgePage(root, 'topic', 'patch-first-design')).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).not.toContain(
         '- [patch-first-design](topics/patch-first-design.md)'
       );
       expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain('src-001');
@@ -70,13 +66,11 @@ describe('runIngestFlow', () => {
       expect(runState.request_run.status).toBe('done');
       expect(runState.request_run.touched_files).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
       expect(runState.changeset?.target_files).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
@@ -115,7 +109,6 @@ describe('runIngestFlow', () => {
         sourceId: 'src-001'
       });
       const firstSource = await readFile(path.join(root, 'wiki', 'sources', 'src-001.md'), 'utf8');
-      const firstTopic = await readFile(path.join(root, 'wiki', 'topics', 'patch-first-design.md'), 'utf8');
       const firstIndex = await readFile(path.join(root, 'wiki', 'index.md'), 'utf8');
       const firstLog = await readFile(path.join(root, 'wiki', 'log.md'), 'utf8');
 
@@ -129,7 +122,6 @@ describe('runIngestFlow', () => {
       expect(second.changeSet.patch_summary).toBe('no wiki changes required');
       expect(second.changeSet.target_files).toEqual([]);
       expect(await readFile(path.join(root, 'wiki', 'sources', 'src-001.md'), 'utf8')).toBe(firstSource);
-      expect(await readFile(path.join(root, 'wiki', 'topics', 'patch-first-design.md'), 'utf8')).toBe(firstTopic);
       expect(await readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).toBe(firstIndex);
       expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toBe(firstLog);
     } finally {
@@ -137,7 +129,7 @@ describe('runIngestFlow', () => {
     }
   });
 
-  it('allows a low-risk patch when the existing topic already belongs to the same accepted source', async () => {
+  it('ignores an existing same-title topic instead of rewriting it during source ingest', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-ingest-'));
 
     try {
@@ -180,16 +172,95 @@ describe('runIngestFlow', () => {
       });
 
       expect(result.review).toEqual({ needs_review: false, reasons: [] });
-      expect(result.persisted).toContain('wiki/topics/patch-first-design.md');
-      expect((await loadKnowledgePage(root, 'topic', 'patch-first-design')).body).toContain(
-        'Patch-first updates keep page structure stable.'
-      );
+      expect(result.persisted).not.toContain('wiki/topics/patch-first-design.md');
+      expect((await loadKnowledgePage(root, 'topic', 'patch-first-design')).body).toContain('Older wording.');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('stops before writing when ingest would rewrite an existing multi-source topic page', async () => {
+  it('allows ingest for a newly created inbox source manifest', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-ingest-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'buffered-brief.md'),
+        '# Uploaded File\n\nAttachment body promoted into source.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-buffered-001',
+          path: 'raw/accepted/buffered-brief.md',
+          title: 'Buffered Brief',
+          type: 'markdown',
+          status: 'inbox',
+          hash: 'sha256:buffered',
+          imported_at: '2026-04-18T00:00:00.000Z'
+        })
+      );
+
+      const result = await runIngestFlow(root, {
+        runId: 'run-buffered-001',
+        userRequest: 'ingest buffered brief',
+        sourceId: 'src-buffered-001'
+      });
+
+      expect(result.review).toEqual({ needs_review: false, reasons: [] });
+      expect(result.persisted).toEqual([
+        'wiki/sources/src-buffered-001.md',
+        'wiki/index.md',
+        'wiki/log.md'
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ingests a source with a Chinese title without producing an empty slug', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-ingest-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design-pattern-beauty.md'),
+        '# 设计模式之美\n\n一本关于设计模式的书。\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-cn-001',
+          path: 'raw/accepted/design-pattern-beauty.md',
+          title: '设计模式之美（王争）',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:cn001',
+          imported_at: '2026-04-18T00:00:00.000Z'
+        })
+      );
+
+      const result = await runIngestFlow(root, {
+        runId: 'run-cn-001',
+        userRequest: 'ingest chinese titled source',
+        sourceId: 'src-cn-001'
+      });
+
+      expect(result.review).toEqual({ needs_review: false, reasons: [] });
+      expect(result.persisted).toEqual([
+        'wiki/sources/src-cn-001.md',
+        'wiki/index.md',
+        'wiki/log.md'
+      ]);
+      expect(await readFile(path.join(root, 'wiki', 'sources', 'src-cn-001.md'), 'utf8')).toContain('一本关于设计模式的书');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves an existing multi-source topic page untouched while ingesting only the source page', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-ingest-'));
 
     try {
@@ -231,21 +302,13 @@ describe('runIngestFlow', () => {
         sourceId: 'src-001'
       });
 
-      expect(result.review).toEqual({
-        needs_review: true,
-        reasons: ['rewrites a core topic page']
-      });
-      expect(result.persisted).toEqual([]);
-      expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toBe('# Wiki Log\n');
+      expect(result.review).toEqual({ needs_review: false, reasons: [] });
+      expect(result.persisted).toEqual(['wiki/sources/src-001.md', 'wiki/index.md', 'wiki/log.md']);
+      expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain('src-001');
       const reviewRunState = await loadRequestRunState(root, 'run-004');
-      expect(reviewRunState.request_run.status).toBe('needs_review');
-      expect(reviewRunState.changeset?.needs_review).toBe(true);
-      await expect(loadKnowledgeTask(root, 'review-run-004')).resolves.toMatchObject({
-        id: 'review-run-004',
-        status: 'needs_review',
-        assignee: 'operator',
-        evidence: expect.arrayContaining(['raw/accepted/design.md', 'wiki/topics/patch-first-design.md'])
-      });
+      expect(reviewRunState.request_run.status).toBe('done');
+      expect(reviewRunState.changeset?.needs_review).toBe(false);
+      expect((await loadKnowledgePage(root, 'topic', 'patch-first-design')).body).toContain('Older conflicting summary.');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

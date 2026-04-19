@@ -59,4 +59,12 @@ export interface ChatSettingsUpdateRequestDto {
 export interface ChatRunStartRequestDto {
   userRequest: string;
   sessionId?: string;
+  attachmentIds?: string[];
+}
+
+export interface ChatAttachmentUploadRequestDto {
+  sessionId?: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
 }

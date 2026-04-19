@@ -1,4 +1,5 @@
 import type {
+  ChatAttachmentUploadRequestDto,
   ChatRunStartRequestDto,
   ChatSettingsUpdateRequestDto,
   KnowledgePageUpsertRequestDto,
@@ -73,10 +74,23 @@ export function parseChatSettingsUpdateRequestDto(value: Record<string, unknown>
 
 export function parseChatRunStartRequestDto(value: Record<string, unknown>): ChatRunStartRequestDto {
   const sessionId = readOptionalStringField(value, 'sessionId');
+  const attachmentIds = readOptionalStringArrayField(value, 'attachmentIds');
 
   return {
     userRequest: readString(value, 'userRequest'),
-    ...(sessionId === undefined ? {} : { sessionId })
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(attachmentIds === undefined ? {} : { attachmentIds })
+  };
+}
+
+export function parseChatAttachmentUploadRequestDto(value: Record<string, unknown>): ChatAttachmentUploadRequestDto {
+  const sessionId = readOptionalStringField(value, 'sessionId');
+
+  return {
+    ...(sessionId === undefined ? {} : { sessionId }),
+    fileName: readString(value, 'fileName'),
+    mimeType: readString(value, 'mimeType'),
+    dataBase64: readString(value, 'dataBase64')
   };
 }
 

@@ -63,7 +63,8 @@ describe('package entry domain exports', () => {
       evidence: [],
       touched_files: [],
       decisions: [],
-      result_summary: ''
+      result_summary: '',
+      attachments: []
     };
 
     const changeSet: ChangeSet = {

@@ -7,6 +7,8 @@ export interface WebServerDependencies {
     runId: string;
     sessionId?: Parameters<typeof runRuntimeAgent>[0]['sessionId'];
     conversationHistory?: Parameters<typeof runRuntimeAgent>[0]['conversationHistory'];
+    currentUserMessage?: Parameters<typeof runRuntimeAgent>[0]['currentUserMessage'];
+    attachments?: Parameters<typeof runRuntimeAgent>[0]['attachments'];
     model?: RunRuntimeAgentResult extends never ? never : Parameters<typeof runRuntimeAgent>[0]['model'];
     getApiKey?: Parameters<typeof runRuntimeAgent>[0]['getApiKey'];
     allowQueryWriteback?: boolean;

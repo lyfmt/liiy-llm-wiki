@@ -65,6 +65,135 @@ describe('runRuntimeAgent', () => {
     }
   });
 
+  it('accepts a rich current user message with attachment-derived content blocks', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const imageBase64 = Buffer.from('fake-image-data').toString('base64');
+
+    try {
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'describe the uploaded files',
+        runId: 'runtime-agent-rich-user-001',
+        currentUserMessage: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe the uploaded files' },
+            { type: 'text', text: 'Attached file: brief.txt\n\nAttachment body' },
+            { type: 'image', data: imageBase64, mimeType: 'image/png' }
+          ],
+          timestamp: Date.now()
+        },
+        model: getModel('anthropic', 'claude-sonnet-4-20250514'),
+        streamFn: createDirectAnswerStream((context) => {
+          const userMessages = context.messages.filter((message) => message.role === 'user');
+          expect(userMessages).toHaveLength(2);
+
+          const requestMessage = userMessages[1]!;
+          expect(requestMessage.content).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ type: 'text', text: 'describe the uploaded files' }),
+              expect.objectContaining({ type: 'text', text: expect.stringContaining('brief.txt') }),
+              expect.objectContaining({ type: 'image', data: imageBase64, mimeType: 'image/png' })
+            ])
+          );
+        })
+      });
+
+      expect(result.intent).toBe('general');
+      expect(result.toolOutcomes).toHaveLength(0);
+      expect(result.assistantText).toContain('Direct response');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('exposes only skill entry tools to the main model while hiding skill-owned tools', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const faux = registerFauxProvider({
+      api: 'test-runtime-skill-agent',
+      provider: 'test-runtime-skill-agent',
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          contextWindow: 200000,
+          maxTokens: 8192
+        }
+      ]
+    });
+
+    try {
+      const skillDirectory = path.join(root, '.agents', 'skills', 'source-to-wiki');
+      await mkdir(skillDirectory, { recursive: true });
+      await writeFile(
+        path.join(skillDirectory, 'SKILL.md'),
+        `---
+name: source-to-wiki
+description: Turn source material into governed wiki drafts.
+allowed-tools: create_source_from_attachment find_source_manifest read_source_manifest read_raw_source draft_knowledge_page apply_draft_upsert
+---
+
+# Source To Wiki
+
+Use this skill when the user wants to turn a source into governed wiki content.
+`,
+        'utf8'
+      );
+      await bootstrapProject(root);
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-12T00:00:00.000Z'
+        })
+      );
+      faux.setResponses([
+        buildSingleToolCallingAssistantMessage('tool-call-skill-1', 'read_source_manifest', {
+          sourceId: 'src-001'
+        }),
+        fauxAssistantMessage('Skill execution completed for source-to-wiki.')
+      ]);
+      const model = faux.getModel('gpt-5.4');
+
+      if (!model) {
+        throw new Error('missing faux model');
+      }
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'add this file into the wiki',
+        runId: 'runtime-agent-skill-001',
+        model,
+        streamFn: createReadAndRunSkillStream((context) => {
+          expect(context.systemPrompt).toContain('# Available Skills');
+          expect(context.systemPrompt).toContain('source-to-wiki');
+          expect(context.systemPrompt).toContain('Turn source material into governed wiki drafts.');
+          expect(context.tools?.map((tool) => tool.name)).toContain('read_skill');
+          expect(context.tools?.map((tool) => tool.name)).toContain('run_skill');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('read_source_manifest');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('read_raw_source');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('draft_knowledge_page');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('apply_draft_upsert');
+        })
+      });
+
+      expect(result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
+      expect(result.toolOutcomes[0]?.summary).toBe('read skill source-to-wiki');
+      expect(result.toolOutcomes[1]?.summary).toBe('ran skill source-to-wiki');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('read_source_manifest');
+      expect(result.assistantText).toContain('Skill execution completed for source-to-wiki.');
+    } finally {
+      faux.unregister();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs a PI-backed query flow and persists a single runtime snapshot', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
 
@@ -247,9 +376,8 @@ describe('runRuntimeAgent', () => {
       const runState = await loadRequestRunState(root, 'runtime-agent-direct-ingest-001');
       expect(runState.request_run.status).toBe('done');
       expect(runState.request_run.result_summary).toContain('Persisted:');
-      expect(runState.request_run.touched_files).toEqual(
-        expect.arrayContaining(['wiki/sources/src-001.md', 'wiki/topics/patch-first-design.md'])
-      );
+      expect(runState.request_run.touched_files).toEqual(expect.arrayContaining(['wiki/sources/src-001.md']));
+      expect(runState.request_run.touched_files).not.toContain('wiki/topics/patch-first-design.md');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -904,6 +1032,60 @@ function createIngestByPathStream(): StreamFn {
     const stream = createAssistantMessageEventStream();
     const assistantMessage =
       callCount === 1 ? buildIngestToolCallingAssistantMessage() : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
+function createReadAndRunSkillStream(inspectContext?: (context: Context) => void): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    inspectContext?.(context);
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1
+        ? buildSingleToolCallingAssistantMessage('tool-call-read-skill-1', 'read_skill', {
+            name: 'source-to-wiki'
+          })
+        : callCount === 2
+          ? buildSingleToolCallingAssistantMessage('tool-call-run-skill-1', 'run_skill', {
+              name: 'source-to-wiki',
+              task: 'Read the source manifest and complete the skill task.'
+            })
+        : buildFinalAssistantMessage(context);
 
     queueMicrotask(() => {
       stream.push({ type: 'start', partial: assistantMessage });

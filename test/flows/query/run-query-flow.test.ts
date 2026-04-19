@@ -127,7 +127,8 @@ describe('runQueryFlow', () => {
 
       const savedQuery = await loadKnowledgePage(root, 'query', 'what-is-patch-first');
       expect(savedQuery.page.title).toBe('What Is Patch First');
-      expect(savedQuery.page.summary).toContain('Patch-first updates keep page structure stable.');
+      expect(Array.from(savedQuery.page.summary).length).toBeLessThanOrEqual(30);
+      expect(savedQuery.page.summary).toBe('Patch-first updates keep page');
       expect(savedQuery.page.tags).toEqual(['patch-first']);
       expect(savedQuery.page.source_refs).toEqual(['raw/accepted/design.md']);
       expect(savedQuery.page.outgoing_links).toEqual(['wiki/topics/patch-first.md']);

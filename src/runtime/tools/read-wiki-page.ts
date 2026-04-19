@@ -3,7 +3,7 @@ import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import type { KnowledgePage, KnowledgePageKind } from '../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../storage/list-knowledge-pages.js';
-import { loadKnowledgePage, type LoadedKnowledgePage } from '../../storage/knowledge-page-store.js';
+import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../storage/knowledge-page-store.js';
 import type { RuntimeContext } from '../runtime-context.js';
 import type { RuntimeToolOutcome } from '../request-run-state.js';
 
@@ -70,7 +70,7 @@ export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentToo
 async function findIncomingLinks(root: string, targetPath: string): Promise<string[]> {
   const pages = await loadAllPages(root);
 
-  return pages.filter((loaded) => loaded.page.outgoing_links.includes(targetPath)).map((loaded) => loaded.page.path).sort();
+  return pages.filter((page) => page.outgoing_links.includes(targetPath)).map((page) => page.path).sort();
 }
 
 async function findSharedSourcePages(root: string, page: KnowledgePage): Promise<string[]> {
@@ -81,21 +81,18 @@ async function findSharedSourcePages(root: string, page: KnowledgePage): Promise
   const pages = await loadAllPages(root);
 
   return pages
-    .filter(
-      (loaded) =>
-        loaded.page.path !== page.path && loaded.page.source_refs.some((sourceRef) => page.source_refs.includes(sourceRef))
-    )
-    .map((loaded) => loaded.page.path)
+    .filter((candidate) => candidate.path !== page.path && candidate.source_refs.some((sourceRef) => page.source_refs.includes(sourceRef)))
+    .map((candidate) => candidate.path)
     .sort();
 }
 
-async function loadAllPages(root: string): Promise<LoadedKnowledgePage[]> {
+async function loadAllPages(root: string): Promise<KnowledgePage[]> {
   const kinds: KnowledgePageKind[] = ['source', 'entity', 'topic', 'query'];
-  const pages: LoadedKnowledgePage[] = [];
+  const pages: KnowledgePage[] = [];
 
   for (const kind of kinds) {
     for (const slug of await listKnowledgePages(root, kind)) {
-      pages.push(await loadKnowledgePage(root, kind, slug));
+      pages.push(await loadKnowledgePageMetadata(root, kind, slug));
     }
   }
 

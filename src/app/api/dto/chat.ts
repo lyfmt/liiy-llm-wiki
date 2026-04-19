@@ -1,3 +1,4 @@
+import type { ChatAttachmentRef } from '../../../domain/chat-attachment.js';
 import type { ChatAction, ChatUiState } from '../../../domain/chat-session.js';
 import type { ChatModelApi } from '../../../domain/chat-settings.js';
 import type { RequestRunStatus } from '../../../domain/request-run.js';
@@ -191,4 +192,10 @@ export interface ChatActionDto {
 export interface ChatRunUiStateDto {
   ui_state: ChatUiState;
   actions: ChatActionDto[];
+}
+
+export interface ChatAttachmentUploadResponseDto {
+  ok: true;
+  session_id: string;
+  attachment: ChatAttachmentRef;
 }

@@ -7,3 +7,11 @@ dist/
 .claude/
 .env
 .llm-wiki-liiy/
+.agents/
+output/
+state/
+web/node_modules/
+web/dist/
+raw/accepted/attachments/
+coverage/
+.vite/

@@ -29,7 +29,16 @@ export { listKnowledgePages } from './storage/list-knowledge-pages.js';
 export { loadKnowledgePage, saveKnowledgePage } from './storage/knowledge-page-store.js';
 export type { LoadedKnowledgePage } from './storage/knowledge-page-store.js';
 export { buildSourceManifestPath } from './storage/source-manifest-paths.js';
-export { findAcceptedSourceManifestByPath, findAcceptedSourceManifestCandidates, listSourceManifests, loadSourceManifest, saveSourceManifest } from './storage/source-manifest-store.js';
+export {
+  findAcceptedSourceManifestByPath,
+  findAcceptedSourceManifestCandidates,
+  findIngestibleSourceManifestByPath,
+  findIngestibleSourceManifestCandidates,
+  isIngestibleSourceManifestStatus,
+  listSourceManifests,
+  loadSourceManifest,
+  saveSourceManifest
+} from './storage/source-manifest-store.js';
 export { listKnowledgeTasks, loadKnowledgeTask, saveKnowledgeTask } from './storage/task-store.js';
 export { loadChatSettings, saveChatSettings } from './storage/chat-settings-store.js';
 export { loadProjectEnv, loadProjectEnvSync, saveProjectEnv, upsertProjectEnvValue, parseProjectEnv, upsertEnvAssignment } from './storage/project-env-store.js';
@@ -49,5 +58,5 @@ export { runLintFlow } from './flows/lint/run-lint-flow.js';
 export type { RunLintFlowInput, RunLintFlowResult } from './flows/lint/run-lint-flow.js';
 export { evaluateReviewGate } from './policies/review-gate.js';
 export type { ReviewGateDecision, ReviewGateSignals } from './policies/review-gate.js';
-export { buildIntentPlan, classifyIntent, createRuntimeContext, buildRuntimeSystemPrompt, createRuntimeRunState, resolveRuntimeModel, runRuntimeAgent, extractRuntimeToolOutcome, createDraftKnowledgePageTool, createDraftQueryPageTool, createApplyDraftUpsertTool, createFindSourceManifestTool, createIngestSourceTool, createListWikiPagesTool, createReadWikiPageTool, createListSourceManifestsTool, createReadSourceManifestTool, createReadRawSourceTool, createUpsertKnowledgePageTool, createQueryWikiTool, createLintWikiTool } from './runtime/index.js';
-export type { RuntimeIntent, RuntimeContext, CreateRuntimeContextInput, RuntimeToolOutcome, PersistedRuntimeToolOutcome, CreateRuntimeRunStateInput, ResolveRuntimeModelResult, RunRuntimeAgentInput, RunRuntimeAgentResult, DraftKnowledgePageParameters, DraftQueryPageParameters, ApplyDraftUpsertParameters, FindSourceManifestParameters, IngestSourceParameters, ListWikiPagesParameters, ReadWikiPageParameters, ListSourceManifestsParameters, ReadSourceManifestParameters, ReadRawSourceParameters, UpsertKnowledgePageParameters, QueryWikiParameters, LintWikiParameters } from './runtime/index.js';
+export { buildIntentPlan, classifyIntent, createRuntimeContext, buildRuntimeSystemPrompt, createRuntimeRunState, resolveRuntimeModel, runRuntimeAgent, extractRuntimeToolOutcome, discoverRuntimeSkills, loadRuntimeSkillDocument, formatSkillsForPrompt, createDraftKnowledgePageTool, createDraftQueryPageTool, createApplyDraftUpsertTool, createCreateSourceFromAttachmentTool, createFindSourceManifestTool, createIngestSourceTool, createListWikiPagesTool, createReadSkillTool, createRunSkillTool, createReadWikiPageTool, createListSourceManifestsTool, createReadSourceManifestTool, createReadRawSourceTool, createUpsertKnowledgePageTool, createQueryWikiTool, createLintWikiTool } from './runtime/index.js';
+export type { RuntimeIntent, RuntimeContext, CreateRuntimeContextInput, RuntimeToolOutcome, PersistedRuntimeToolOutcome, CreateRuntimeRunStateInput, ResolveRuntimeModelResult, RunRuntimeAgentInput, RunRuntimeAgentResult, BuildRuntimeSystemPromptOptions, SkillFrontmatter, SkillSummary, LoadedSkillDocument, RuntimeSkillDiagnostic, DiscoverRuntimeSkillsResult, DraftKnowledgePageParameters, DraftQueryPageParameters, ApplyDraftUpsertParameters, CreateSourceFromAttachmentParameters, FindSourceManifestParameters, IngestSourceParameters, ListWikiPagesParameters, ReadSkillParameters, RunSkillParameters, CreateRunSkillToolOptions, ReadWikiPageParameters, ListSourceManifestsParameters, ReadSourceManifestParameters, ReadRawSourceParameters, UpsertKnowledgePageParameters, QueryWikiParameters, LintWikiParameters } from './runtime/index.js';

@@ -1,6 +1,7 @@
 export interface RuntimeContext {
   root: string;
   runId: string;
+  sessionId?: string;
   allowQueryWriteback: boolean;
   allowLintAutoFix: boolean;
   allocateToolRunId: (toolName: string) => string;
@@ -9,6 +10,7 @@ export interface RuntimeContext {
 export interface CreateRuntimeContextInput {
   root: string;
   runId: string;
+  sessionId?: string;
   allowQueryWriteback?: boolean;
   allowLintAutoFix?: boolean;
 }
@@ -19,6 +21,7 @@ export function createRuntimeContext(input: CreateRuntimeContextInput): RuntimeC
   return {
     root: input.root,
     runId: input.runId,
+    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     allowQueryWriteback: input.allowQueryWriteback ?? false,
     allowLintAutoFix: input.allowLintAutoFix ?? false,
     allocateToolRunId: (toolName: string) => {

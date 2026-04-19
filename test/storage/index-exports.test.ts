@@ -6,6 +6,9 @@ import {
   buildSourceManifestPath,
   findAcceptedSourceManifestByPath,
   findAcceptedSourceManifestCandidates,
+  findIngestibleSourceManifestByPath,
+  findIngestibleSourceManifestCandidates,
+  isIngestibleSourceManifestStatus,
   listKnowledgePages,
   listKnowledgeTasks,
   listRequestRunIds,
@@ -66,6 +69,9 @@ describe('package entry storage exports', () => {
     expect(typeof buildSourceManifestPath).toBe('function');
     expect(typeof findAcceptedSourceManifestByPath).toBe('function');
     expect(typeof findAcceptedSourceManifestCandidates).toBe('function');
+    expect(typeof findIngestibleSourceManifestByPath).toBe('function');
+    expect(typeof findIngestibleSourceManifestCandidates).toBe('function');
+    expect(typeof isIngestibleSourceManifestStatus).toBe('function');
     expect(typeof listSourceManifests).toBe('function');
     expect(typeof saveSourceManifest).toBe('function');
     expect(typeof loadSourceManifest).toBe('function');

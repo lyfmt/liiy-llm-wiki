@@ -1,3 +1,5 @@
+import type { ChatAttachmentRef } from './chat-attachment.js';
+
 export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 'rejected';
 
 export interface RequestRun {
@@ -11,6 +13,7 @@ export interface RequestRun {
   touched_files: string[];
   decisions: string[];
   result_summary: string;
+  attachments: ChatAttachmentRef[];
 }
 
 export interface CreateRequestRunInput {
@@ -24,6 +27,7 @@ export interface CreateRequestRunInput {
   touched_files?: string[];
   decisions?: string[];
   result_summary?: string;
+  attachments?: ChatAttachmentRef[];
 }
 
 export function createRequestRun(input: CreateRequestRunInput): RequestRun {
@@ -37,6 +41,7 @@ export function createRequestRun(input: CreateRequestRunInput): RequestRun {
     evidence: [...(input.evidence ?? [])],
     touched_files: [...(input.touched_files ?? [])],
     decisions: [...(input.decisions ?? [])],
-    result_summary: input.result_summary ?? ''
+    result_summary: input.result_summary ?? '',
+    attachments: [...(input.attachments ?? [])]
   };
 }

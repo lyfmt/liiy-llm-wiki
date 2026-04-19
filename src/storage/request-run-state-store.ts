@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 
+import { type ChatAttachmentRef } from '../domain/chat-attachment.js';
 import { createChangeSet, type ChangeSet } from '../domain/change-set.js';
 import { createRequestRun, type RequestRun, type RequestRunStatus } from '../domain/request-run.js';
 import type { PersistedRuntimeToolOutcome } from '../runtime/request-run-state.js';
@@ -54,6 +55,7 @@ interface StoredRequestRecord {
   session_id: string | null;
   user_request: string;
   intent: string;
+  attachments?: ChatAttachmentRef[];
 }
 
 interface StoredCheckpointRecord {
@@ -74,7 +76,8 @@ export async function saveRequestRunState(
     run_id: state.request_run.run_id,
     session_id: state.request_run.session_id,
     user_request: state.request_run.user_request,
-    intent: state.request_run.intent
+    intent: state.request_run.intent,
+    attachments: state.request_run.attachments
   });
   await writeJson(paths.plan, state.request_run.plan);
   await writeJson(paths.evidence, state.request_run.evidence);
@@ -157,7 +160,8 @@ export async function loadRequestRunState(root: string, runId: string): Promise<
       evidence,
       touched_files: checkpoint.touched_files,
       decisions: checkpoint.decisions,
-      result_summary: checkpoint.result_summary
+      result_summary: checkpoint.result_summary,
+      attachments: request.attachments ?? []
     }),
     tool_outcomes,
     events,
@@ -197,11 +201,14 @@ function assertStoredRequestRecord(
     throw new Error(`Invalid request run state: invalid ${fileName}`);
   }
 
+  const attachments = value.attachments === undefined ? undefined : assertStoredChatAttachmentRefArray(value.attachments, fileName);
+
   return {
     run_id: value.run_id,
     session_id: value.session_id ?? null,
     user_request: value.user_request,
-    intent: value.intent
+    intent: value.intent,
+    ...(attachments === undefined ? {} : { attachments })
   };
 }
 
@@ -283,6 +290,36 @@ function assertStoredToolOutcomeArray(value: unknown, fileName: string): Persist
   }
 
   return value.map((entry) => assertStoredToolOutcome(entry, fileName));
+}
+
+function assertStoredChatAttachmentRefArray(value: unknown, fileName: string): ChatAttachmentRef[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return value.map((entry) => assertStoredChatAttachmentRef(entry, fileName));
+}
+
+function assertStoredChatAttachmentRef(value: unknown, fileName: string): ChatAttachmentRef {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  if (
+    typeof value.attachment_id !== 'string'
+    || typeof value.file_name !== 'string'
+    || typeof value.mime_type !== 'string'
+    || (value.kind !== 'image' && value.kind !== 'pdf' && value.kind !== 'text')
+  ) {
+    throw new Error(`Invalid request run state: invalid ${fileName}`);
+  }
+
+  return {
+    attachment_id: value.attachment_id,
+    file_name: value.file_name,
+    mime_type: value.mime_type,
+    kind: value.kind
+  };
 }
 
 function assertStoredToolOutcome(value: unknown, fileName: string): PersistedRuntimeToolOutcome {

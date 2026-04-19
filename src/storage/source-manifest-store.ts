@@ -14,6 +14,10 @@ export interface SourceManifestCandidate {
   reasons: string[];
 }
 
+export function isIngestibleSourceManifestStatus(status: SourceManifestStatus): boolean {
+  return status === 'inbox' || status === 'accepted' || status === 'processed';
+}
+
 export async function saveSourceManifest(root: string, manifest: SourceManifest): Promise<string> {
   if (!isRawPath(manifest.path)) {
     throw new Error(`Invalid source manifest: invalid ${manifest.id}.json`);
@@ -55,6 +59,27 @@ export async function findAcceptedSourceManifestByPath(root: string, rawPath: st
   return matches[0]!;
 }
 
+export async function findIngestibleSourceManifestByPath(root: string, rawPath: string): Promise<SourceManifest> {
+  if (!isRawPath(rawPath)) {
+    throw new Error(`Invalid source manifest path lookup: ${rawPath}`);
+  }
+
+  const manifests = await listSourceManifests(root);
+  const matches = manifests.filter((manifest) => isIngestibleSourceManifestStatus(manifest.status) && manifest.path === rawPath);
+
+  if (matches.length === 0) {
+    throw new Error(`No ingestible source manifest found for path: ${rawPath}`);
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Ambiguous ingestible source manifest for path ${rawPath}: ${matches.map((manifest) => manifest.id).join(', ')}`
+    );
+  }
+
+  return matches[0]!;
+}
+
 export async function findAcceptedSourceManifestCandidates(
   root: string,
   query: string
@@ -68,6 +93,31 @@ export async function findAcceptedSourceManifestCandidates(
   const acceptedManifests = (await listSourceManifests(root)).filter((manifest) => manifest.status === 'accepted');
   const queryTokens = tokenize(normalizedQuery);
   const candidates = acceptedManifests
+    .map((manifest) => scoreManifestCandidate(manifest, normalizedQuery, queryTokens))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => {
+      return (
+        right.score - left.score ||
+        left.manifest.id.localeCompare(right.manifest.id)
+      );
+    });
+
+  return candidates;
+}
+
+export async function findIngestibleSourceManifestCandidates(
+  root: string,
+  query: string
+): Promise<SourceManifestCandidate[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery.length === 0) {
+    return [];
+  }
+
+  const ingestibleManifests = (await listSourceManifests(root)).filter((manifest) => isIngestibleSourceManifestStatus(manifest.status));
+  const queryTokens = tokenize(normalizedQuery);
+  const candidates = ingestibleManifests
     .map((manifest) => scoreManifestCandidate(manifest, normalizedQuery, queryTokens))
     .filter((candidate) => candidate.score > 0)
     .sort((left, right) => {

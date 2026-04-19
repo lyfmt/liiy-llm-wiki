@@ -24,10 +24,11 @@ import {
   loadReviewSummaryDto,
   loadRunDetailResponseDto
 } from '../../src/app/api/services/run.js';
-import { loadChatSessionDetailDto } from '../../src/app/api/services/chat-session.js';
+import { buildChatConversationHistory, loadChatSessionDetailDto } from '../../src/app/api/services/chat-session.js';
 import { createChatSession } from '../../src/domain/chat-session.js';
 import { createRequestRun } from '../../src/domain/request-run.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
+import { saveBufferedChatAttachment, toChatAttachmentRef } from '../../src/storage/chat-attachment-store.js';
 import { saveChatSession } from '../../src/storage/chat-session-store.js';
 import { saveRequestRunState, type RequestRunState } from '../../src/storage/request-run-state-store.js';
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
@@ -464,6 +465,10 @@ describe('app api services', () => {
     expect(parseChatRunStartRequestDto({ userRequest: 'what is patch first?' })).toEqual({
       userRequest: 'what is patch first?'
     });
+    expect(parseChatRunStartRequestDto({ userRequest: 'what is patch first?', attachmentIds: ['att-001', 'att-002'] })).toEqual({
+      userRequest: 'what is patch first?',
+      attachmentIds: ['att-001', 'att-002']
+    });
 
     expect(() => parseReviewDecisionRequestDto({ decision: 'later' })).toThrow('Invalid JSON body: expected review decision');
     expect(() => parseTaskUpsertRequestDto({ title: 'Bad task', created_at: '2026-04-15T00:00:00.000Z', status: 'later' })).toThrow(
@@ -620,6 +625,77 @@ describe('app api services', () => {
         task_id: null,
         touched_files: [],
         status: 'running'
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rebuilds chat conversation history with buffered attachments as user content', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-api-services-'));
+
+    try {
+      await bootstrapProject(root);
+
+      const attachment = await saveBufferedChatAttachment(root, {
+        sessionId: 'session-chat-attach-001',
+        fileName: 'notes.txt',
+        mimeType: 'text/plain',
+        data: Buffer.from('Patch first attachment body\n', 'utf8')
+      });
+
+      await saveRequestRunState(root, {
+        request_run: createRequestRun({
+          run_id: 'run-attach-001',
+          session_id: 'session-chat-attach-001',
+          user_request: 'use attached notes',
+          intent: 'query',
+          plan: ['observe'],
+          status: 'done',
+          evidence: [],
+          touched_files: [],
+          decisions: ['query_wiki: answered with attachment'],
+          result_summary: 'used attached notes',
+          attachments: [toChatAttachmentRef(attachment)]
+        }),
+        tool_outcomes: [],
+        draft_markdown: '# Draft\n',
+        result_markdown: '# Result\n',
+        changeset: null
+      });
+
+      await saveChatSession(
+        root,
+        createChatSession({
+          session_id: 'session-chat-attach-001',
+          title: 'Session with attachment',
+          run_ids: ['run-attach-001'],
+          last_run_id: 'run-attach-001',
+          summary: 'session summary',
+          status: 'done'
+        })
+      );
+
+      const history = await buildChatConversationHistory(root, 'session-chat-attach-001');
+
+      expect(history).toHaveLength(2);
+      expect(history[0]).toMatchObject({
+        role: 'user'
+      });
+      expect(history[0]?.role).toBe('user');
+      if (history[0]?.role !== 'user') {
+        throw new Error('expected first history item to be a user message');
+      }
+      expect(history[0].content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'text', text: 'use attached notes' }),
+          expect.objectContaining({ type: 'text', text: expect.stringContaining('notes.txt') }),
+          expect.objectContaining({ type: 'text', text: expect.stringContaining('Patch first attachment body') })
+        ])
+      );
+      expect(history[1]).toEqual({
+        role: 'assistant',
+        content: 'used attached notes'
       });
     } finally {
       await rm(root, { recursive: true, force: true });

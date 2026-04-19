@@ -1,5 +1,12 @@
 import type { RequestRunStatus } from '../../../domain/request-run.js';
 
+export interface ChatAttachmentRefDto {
+  attachment_id: string;
+  file_name: string;
+  mime_type: string;
+  kind: 'image' | 'pdf' | 'text';
+}
+
 export interface ChangeSetDto {
   target_files: string[];
   patch_summary: string;
@@ -71,6 +78,7 @@ export interface RunDetailResponseDto {
     touched_files: string[];
     decisions: string[];
     result_summary: string;
+    attachments: ChatAttachmentRefDto[];
   };
   tool_outcomes: RunDetailToolOutcomeDto[];
   events: RunDetailEventDto[];

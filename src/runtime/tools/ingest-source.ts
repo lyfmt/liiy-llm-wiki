@@ -2,13 +2,13 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import { runIngestFlow } from '../../flows/ingest/run-ingest-flow.js';
-import { findAcceptedSourceManifestByPath } from '../../storage/source-manifest-store.js';
+import { findIngestibleSourceManifestByPath } from '../../storage/source-manifest-store.js';
 import type { RuntimeContext } from '../runtime-context.js';
 import type { RuntimeToolOutcome } from '../request-run-state.js';
 
 const parameters = Type.Object({
-  sourceId: Type.Optional(Type.String({ description: 'Accepted source manifest id to ingest' })),
-  sourcePath: Type.Optional(Type.String({ description: 'Accepted raw source path to resolve and ingest' })),
+  sourceId: Type.Optional(Type.String({ description: 'Registered source manifest id to ingest' })),
+  sourcePath: Type.Optional(Type.String({ description: 'Registered raw source path to resolve and ingest' })),
   userRequest: Type.Optional(Type.String({ description: 'Optional user-facing description for the ingest run' }))
 });
 
@@ -19,7 +19,7 @@ export function createIngestSourceTool(runtimeContext: RuntimeContext): AgentToo
     name: 'ingest_source',
     label: 'Ingest Source',
     description:
-      'Ingest an accepted source manifest by manifest id or accepted raw path. Use only when the user explicitly asks for ingest or source expansion, and resolve ambiguity first.',
+      'Ingest a registered source manifest by manifest id or raw path into the source layer. This registers or refreshes a source page; it does not automatically create topic pages. Use only when the user explicitly asks for source ingest or source persistence, and resolve ambiguity first.',
     parameters,
     execute: async (_toolCallId, params) => {
       const hasSourceId = typeof params.sourceId === 'string';
@@ -31,7 +31,7 @@ export function createIngestSourceTool(runtimeContext: RuntimeContext): AgentToo
 
       const sourcePath = hasSourcePath ? params.sourcePath : undefined;
       const resolvedManifest = sourcePath
-        ? await findAcceptedSourceManifestByPath(runtimeContext.root, sourcePath)
+        ? await findIngestibleSourceManifestByPath(runtimeContext.root, sourcePath)
         : null;
       const sourceId = params.sourceId ?? resolvedManifest?.id;
       const sourceLabel = sourcePath ?? sourceId;

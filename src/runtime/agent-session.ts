@@ -3,10 +3,12 @@ import { type Api, type Message, type Model } from '@mariozechner/pi-ai';
 
 import { loadChatSettings } from '../storage/chat-settings-store.js';
 import { saveRequestRunState, type RequestRunEvent } from '../storage/request-run-state-store.js';
-import { findAcceptedSourceManifestByPath } from '../storage/source-manifest-store.js';
+import { findIngestibleSourceManifestByPath } from '../storage/source-manifest-store.js';
 import { runIngestFlow } from '../flows/ingest/run-ingest-flow.js';
 import { syncReviewTask } from '../flows/review/sync-review-task.js';
 import { buildIntentPlan, classifyIntent, type RuntimeIntent } from './intent-classifier.js';
+import { discoverRuntimeSkills } from './skills/discovery.js';
+import { buildRuntimeToolCatalog } from './tool-catalog.js';
 import {
   appendRuntimeSystemContext,
   createRuntimeContextReminderMessage,
@@ -17,29 +19,24 @@ import { resolveRuntimeModel } from './resolve-runtime-model.js';
 import { createRuntimeContext } from './runtime-context.js';
 import { createRuntimeRunState, type RuntimeToolOutcome } from './request-run-state.js';
 import { buildRuntimeSystemPrompt } from './system-prompt.js';
-import { createApplyDraftUpsertTool } from './tools/apply-draft-upsert.js';
+import type { ChatAttachmentRef } from '../domain/chat-attachment.js';
+import type { RuntimeConversationMessage, RuntimeUserMessage } from './chat-message-content.js';
 import {
-  createDraftKnowledgePageTool,
   createModelBackedKnowledgePageDraftSynthesizer
 } from './tools/draft-knowledge-page.js';
-import { createDraftQueryPageTool } from './tools/draft-query-page.js';
-import { createFindSourceManifestTool } from './tools/find-source-manifest.js';
-import { createIngestSourceTool } from './tools/ingest-source.js';
-import { createLintWikiTool } from './tools/lint-wiki.js';
-import { createListSourceManifestsTool } from './tools/list-source-manifests.js';
-import { createListWikiPagesTool } from './tools/list-wiki-pages.js';
-import { createModelBackedQueryAnswerSynthesizer, createQueryWikiTool } from './tools/query-wiki.js';
-import { createReadRawSourceTool } from './tools/read-raw-source.js';
-import { createReadSourceManifestTool } from './tools/read-source-manifest.js';
-import { createReadWikiPageTool } from './tools/read-wiki-page.js';
-import { createUpsertKnowledgePageTool } from './tools/upsert-knowledge-page.js';
+import { createModelBackedQueryAnswerSynthesizer } from './tools/query-wiki.js';
+import { createReadSkillTool } from './tools/read-skill.js';
+import { createRunSkillTool } from './tools/run-skill.js';
+import type { SkillSummary } from './skills/types.js';
 
 export interface RunRuntimeAgentInput {
   root: string;
   userRequest: string;
   runId: string;
   sessionId?: string;
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  conversationHistory?: RuntimeConversationMessage[];
+  currentUserMessage?: RuntimeUserMessage;
+  attachments?: ChatAttachmentRef[];
   model?: Model<Api>;
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
   streamFn?: StreamFn;
@@ -71,6 +68,7 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
   const runtimeContext = createRuntimeContext({
     root: input.root,
     runId: input.runId,
+    sessionId: input.sessionId,
     allowQueryWriteback: input.allowQueryWriteback,
     allowLintAutoFix: input.allowLintAutoFix
   });
@@ -117,7 +115,15 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       })
     )
   ]);
-  const tools = buildRuntimeTools(runtimeContext, querySynthesizer, knowledgeDraftSynthesizer);
+  const discoveredSkills = await discoverRuntimeSkills(input.root);
+  const tools = buildRuntimeTools(
+    runtimeContext,
+    resolvedRuntimeModel.model,
+    resolvedRuntimeModel.getApiKey,
+    querySynthesizer,
+    knowledgeDraftSynthesizer,
+    discoveredSkills.skills
+  );
   const initialMessages = buildInitialMessages(runtimeUserContext, input.conversationHistory);
   const persistRuntimeSnapshot = async (overrides?: {
     status?: 'running' | 'needs_review' | 'done' | 'failed';
@@ -132,7 +138,8 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       toolOutcomes,
       assistantSummary: overrides?.assistantSummary ?? collectAssistantText(agent.state.messages as RuntimeAgentMessage[], toolOutcomes),
       status: overrides?.status,
-      events
+      events,
+      attachments: input.attachments
     });
 
     await saveRequestRunState(input.root, runtimeState);
@@ -144,7 +151,10 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
   };
   const agent = new Agent({
     initialState: {
-      systemPrompt: appendRuntimeSystemContext(buildRuntimeSystemPrompt(intent), runtimeSystemContext),
+      systemPrompt: appendRuntimeSystemContext(
+        buildRuntimeSystemPrompt(intent, { skills: discoveredSkills.skills }),
+        runtimeSystemContext
+      ),
       model: resolvedRuntimeModel.model,
       tools,
       messages: initialMessages
@@ -248,7 +258,15 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       { status: 'running', assistantSummary: `Planning ${intent} run.` }
     );
 
-    await agent.prompt(input.userRequest);
+    if (input.currentUserMessage) {
+      await agent.prompt({
+        role: 'user',
+        content: input.currentUserMessage.content,
+        timestamp: input.currentUserMessage.timestamp ?? Date.now()
+      });
+    } else {
+      await agent.prompt(input.userRequest);
+    }
 
     const finalAssistant = getLatestAssistantMessage(agent.state.messages as RuntimeAgentMessage[]);
 
@@ -279,7 +297,8 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       plan,
       toolOutcomes,
       assistantSummary: assistantText || 'Runtime completed without assistant text.',
-      events
+      events,
+      attachments: input.attachments
     });
     const savedPaths = await saveRequestRunState(input.root, runtimeState);
     await syncReviewTask(input.root, runtimeState);
@@ -312,7 +331,8 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       toolOutcomes,
       assistantSummary: message,
       status: 'failed',
-      events
+      events,
+      attachments: input.attachments
     });
     await saveRequestRunState(input.root, failedState);
     throw error;
@@ -321,33 +341,34 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
 
 function buildRuntimeTools(
   runtimeContext: ReturnType<typeof createRuntimeContext>,
+  model: Model<Api>,
+  getApiKey: (provider: string) => Promise<string | undefined> | string | undefined,
   querySynthesizer?: ReturnType<typeof createModelBackedQueryAnswerSynthesizer>,
-  knowledgeDraftSynthesizer?: ReturnType<typeof createModelBackedKnowledgePageDraftSynthesizer>
+  knowledgeDraftSynthesizer?: ReturnType<typeof createModelBackedKnowledgePageDraftSynthesizer>,
+  skills: SkillSummary[] = []
 ) {
-  const wikiObserveTools = [createListWikiPagesTool(runtimeContext), createReadWikiPageTool(runtimeContext)];
-  const sourceObserveTools = [
-    createListSourceManifestsTool(runtimeContext),
-    createReadSourceManifestTool(runtimeContext),
-    createReadRawSourceTool(runtimeContext)
-  ];
+  const catalog = buildRuntimeToolCatalog(runtimeContext, {
+    querySynthesizer,
+    knowledgeDraftSynthesizer
+  });
+  const skillOwnedTools = new Set(skills.flatMap((skill) => skill.allowedTools));
+  const exposedCatalogTools = Object.values(catalog).filter((tool) => !skillOwnedTools.has(tool.name));
 
   return [
-    ...wikiObserveTools,
-    ...sourceObserveTools,
-    createDraftKnowledgePageTool(runtimeContext, { synthesizeDraft: knowledgeDraftSynthesizer }),
-    createDraftQueryPageTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-    createApplyDraftUpsertTool(runtimeContext),
-    createFindSourceManifestTool(runtimeContext),
-    createIngestSourceTool(runtimeContext),
-    createQueryWikiTool(runtimeContext, { synthesizeAnswer: querySynthesizer }),
-    createUpsertKnowledgePageTool(runtimeContext),
-    createLintWikiTool(runtimeContext)
+    ...exposedCatalogTools,
+    createReadSkillTool(runtimeContext, { skills }),
+    createRunSkillTool(runtimeContext, {
+      skills,
+      toolCatalog: catalog,
+      model,
+      getApiKey
+    })
   ];
 }
 
 function buildInitialMessages(
   userContext: Record<string, string>,
-  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+  conversationHistory?: RuntimeConversationMessage[]
 ): RuntimeAgentMessage[] {
   const initialMessages: RuntimeAgentMessage[] = [];
   const contextReminder = createRuntimeContextReminderMessage(userContext);
@@ -366,7 +387,7 @@ function buildInitialMessages(
         message.role === 'user'
           ? {
               role: 'user',
-              content: [{ type: 'text', text: message.content }],
+              content: message.content,
               timestamp: Date.now()
             }
           : createSyntheticAssistantHistoryMessage(message.content)
@@ -538,7 +559,7 @@ async function tryRunDeterministicIngestShortcut(
   });
 
   try {
-    const manifest = await findAcceptedSourceManifestByPath(input.root, sourcePath);
+    const manifest = await findIngestibleSourceManifestByPath(input.root, sourcePath);
     const ingestResult = await runIngestFlow(input.root, {
       runId: runtimeContext.allocateToolRunId('ingest'),
       userRequest: `ingest ${sourcePath}`,

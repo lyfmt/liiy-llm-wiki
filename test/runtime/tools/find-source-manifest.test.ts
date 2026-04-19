@@ -92,7 +92,7 @@ describe('createFindSourceManifestTool', () => {
 
       const result = await tool.execute('tool-call-2', { query: 'patch first' });
 
-      expect(result.details.summary).toBe('found 2 accepted source manifest candidates');
+      expect(result.details.summary).toBe('found 2 ingestible source manifest candidates');
       expect(result.details.resultMarkdown).toContain('Ambiguous candidates');
       expect(result.details.resultMarkdown).toContain('src-001');
       expect(result.details.resultMarkdown).toContain('src-002');
@@ -114,7 +114,7 @@ describe('createFindSourceManifestTool', () => {
 
       const result = await tool.execute('tool-call-3', { query: 'missing source' });
 
-      expect(result.details.summary).toBe('no accepted source manifests matched');
+      expect(result.details.summary).toBe('no ingestible source manifests matched');
       expect(result.details.touchedFiles).toEqual([]);
       expect(result.details.resultMarkdown).toContain('No candidates');
     } finally {

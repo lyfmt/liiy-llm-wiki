@@ -21,6 +21,13 @@ interface JsonResponse<T> {
   body: T;
 }
 
+interface CapturedChatRunInput {
+  userRequest: string;
+  sessionId?: string;
+  currentUserMessage?: unknown;
+  conversationHistory?: unknown;
+}
+
 describe('createWebServer', () => {
   it('serves SPA shell plus wiki, task, review, and chat endpoints', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
@@ -232,7 +239,7 @@ describe('createWebServer', () => {
         expect(wikiIndex.body.topics).toEqual(['patch-first']);
         expect(wikiPage.body.page.title).toBe('Patch First');
         expect(wikiPage.body.page.tags).toEqual(['patch-first']);
-        expect(wikiPage.body.page.summary).toBe('Patch-first updates keep page structure stable.');
+        expect(wikiPage.body.page.summary).toBe('Patch-first updates keep page');
         expect(Array.isArray(wikiPage.body.navigation.backlinks)).toBe(true);
         expect(chatOperations.body.settings.model).toBe('gpt-5.4');
         expect(chatOperations.body.project_env).toEqual({ source: 'project_root_env', keys: ['RUNTIME_API_KEY'] });
@@ -365,7 +372,7 @@ describe('createWebServer', () => {
         expect(savedPage.body.status).toBe('done');
         expect(savedPage.body.review).toEqual({ needs_review: false, reasons: [] });
         expect(savedPage.body.touched_files).toEqual(['wiki/topics/patch-first.md', 'wiki/index.md', 'wiki/log.md']);
-        expect(savedPage.body.page.page.summary).toBe('Patch-first updates keep page structure stable and auditable.');
+        expect(savedPage.body.page.page.summary).toBe('Patch-first updates keep page');
         expect(Array.isArray(savedPage.body.page.navigation.source_refs)).toBe(true);
         expect(savedTask.body.ok).toBe(true);
         expect(savedTask.body.task).toMatchObject({
@@ -1136,6 +1143,129 @@ describe('createWebServer', () => {
         expect(runtimeFailure.body.run_url).toBe(`/api/runs/${runtimeFailure.body.run_id}`);
         expect(runtimeFailure.body.error).toContain('synthetic launch failure');
         expect(runtimeFailure.body.result_summary).toContain('synthetic launch failure');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uploads a buffered attachment and forwards it into the chat run context', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    let capturedInput: CapturedChatRunInput | null = null;
+
+    try {
+      await bootstrapProject(root);
+
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ userRequest, sessionId, currentUserMessage, conversationHistory, runId }) => {
+          capturedInput = {
+            userRequest,
+            sessionId,
+            currentUserMessage,
+            conversationHistory
+          };
+
+          return {
+            runId,
+            intent: 'general',
+            plan: ['answer directly'],
+            assistantText: 'attachment received',
+            toolOutcomes: [],
+            savedRunState: path.join(root, 'state', 'runs', runId)
+          };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        await fetchJson(`${baseUrl}/api/chat/settings`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-5.4',
+            provider: 'llm-wiki-liiy',
+            api: 'anthropic-messages',
+            base_url: 'http://runtime.example.invalid/v1',
+            api_key_env: 'RUNTIME_API_KEY',
+            project_env_contents: 'RUNTIME_API_KEY=web-test-key\n',
+            allow_query_writeback: false,
+            allow_lint_autofix: false
+          })
+        });
+
+        const upload = await fetchJson<{
+          ok: boolean;
+          session_id: string;
+          attachment: {
+            attachment_id: string;
+            file_name: string;
+            mime_type: string;
+            kind: string;
+          };
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body from web upload\n', 'utf8').toString('base64')
+          })
+        });
+
+        expect(upload.status).toBe(201);
+        expect(upload.body.ok).toBe(true);
+        expect(upload.body.session_id).toMatch(/[0-9a-f-]{36}/u);
+        expect(upload.body.attachment).toMatchObject({
+          file_name: 'brief.txt',
+          mime_type: 'text/plain',
+          kind: 'text'
+        });
+
+        const launched = await fetchJson<{
+          ok: boolean;
+          run_id: string;
+          session_id: string;
+          status: string;
+          result_summary: string;
+        }>(`${baseUrl}/api/chat/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userRequest: 'summarize the uploaded file',
+            sessionId: upload.body.session_id,
+            attachmentIds: [upload.body.attachment.attachment_id]
+          })
+        });
+
+        expect(launched.status).toBe(200);
+        expect(launched.body.ok).toBe(true);
+        expect(launched.body.session_id).toBe(upload.body.session_id);
+        expect(capturedInput).not.toBeNull();
+        if (capturedInput === null) {
+          throw new Error('expected captured runtime input');
+        }
+        const launchInput: CapturedChatRunInput = capturedInput;
+        expect(launchInput.userRequest).toBe('summarize the uploaded file');
+        expect(launchInput.sessionId).toBe(upload.body.session_id);
+        expect(launchInput.conversationHistory).toEqual([]);
+        expect(launchInput.currentUserMessage).toMatchObject({
+          role: 'user',
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: 'summarize the uploaded file' }),
+            expect.objectContaining({ type: 'text', text: expect.stringContaining('brief.txt') }),
+            expect.objectContaining({ type: 'text', text: expect.stringContaining('Attachment body from web upload') })
+          ])
+        });
       } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }

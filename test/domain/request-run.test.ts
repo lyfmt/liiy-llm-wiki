@@ -21,7 +21,8 @@ describe('createRequestRun', () => {
       evidence: [],
       touched_files: [],
       decisions: [],
-      result_summary: ''
+      result_summary: '',
+      attachments: []
     });
   });
 

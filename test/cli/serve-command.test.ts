@@ -90,6 +90,8 @@ describe('main serve command', () => {
       let capturedRunRuntimeAgentInput: {
         root: string;
         userRequest: string;
+        currentUserMessage?: unknown;
+        attachments?: unknown;
         model?: {
           provider: string;
           id: string;
@@ -107,10 +109,22 @@ describe('main serve command', () => {
           await bootstrapProject(projectRoot);
           return { directories: [], files: [] };
         },
-        runRuntimeAgent: async ({ root: projectRoot, userRequest, runId, model, getApiKey, allowQueryWriteback, allowLintAutoFix }) => {
+        runRuntimeAgent: async ({
+          root: projectRoot,
+          userRequest,
+          runId,
+          currentUserMessage,
+          attachments,
+          model,
+          getApiKey,
+          allowQueryWriteback,
+          allowLintAutoFix
+        }) => {
           capturedRunRuntimeAgentInput = {
             root: projectRoot,
             userRequest,
+            currentUserMessage,
+            attachments,
             model: model
               ? {
                   provider: model.provider,
@@ -176,10 +190,43 @@ describe('main serve command', () => {
         project_env_has_configured_key: true
       });
 
+      const uploadResponse = await fetch(`http://127.0.0.1:${output.port}/api/chat/uploads`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          fileName: 'brief.txt',
+          mimeType: 'text/plain',
+          dataBase64: Buffer.from('Attachment body from serve command test\n', 'utf8').toString('base64')
+        })
+      });
+      const uploadPayload = (await uploadResponse.json()) as {
+        ok: boolean;
+        session_id: string;
+        attachment: {
+          attachment_id: string;
+          file_name: string;
+          mime_type: string;
+          kind: string;
+        };
+      };
+      expect(uploadResponse.status).toBe(201);
+      expect(uploadPayload).toMatchObject({
+        ok: true,
+        attachment: {
+          file_name: 'brief.txt',
+          mime_type: 'text/plain',
+          kind: 'text'
+        }
+      });
+
       const chatRunResponse = await fetch(`http://127.0.0.1:${output.port}/api/chat/runs`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userRequest: 'what is patch first?' })
+        body: JSON.stringify({
+          userRequest: 'what is patch first?',
+          sessionId: uploadPayload.session_id,
+          attachmentIds: [uploadPayload.attachment.attachment_id]
+        })
       });
       const chatRunPayload = (await chatRunResponse.json()) as {
         ok: boolean;
@@ -213,6 +260,22 @@ describe('main serve command', () => {
       expect(capturedRunRuntimeAgentInput).toMatchObject({
         root,
         userRequest: 'what is patch first?',
+        attachments: [
+          {
+            attachment_id: uploadPayload.attachment.attachment_id,
+            file_name: 'brief.txt',
+            mime_type: 'text/plain',
+            kind: 'text'
+          }
+        ],
+        currentUserMessage: {
+          role: 'user',
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: 'what is patch first?' }),
+            expect.objectContaining({ type: 'text', text: expect.stringContaining('brief.txt') }),
+            expect.objectContaining({ type: 'text', text: expect.stringContaining('Attachment body from serve command test') })
+          ])
+        },
         model: {
           provider: 'llm-wiki-liiy',
           id: 'gpt-5.4',

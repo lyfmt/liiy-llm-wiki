@@ -3,9 +3,14 @@ import { createKnowledgePage, type KnowledgePage } from '../../domain/knowledge-
 import { createRequestRun } from '../../domain/request-run.js';
 import { evaluateReviewGate, type ReviewGateDecision } from '../../policies/review-gate.js';
 import { appendWikiLog, rewriteWikiIndex } from '../wiki/maintain-wiki-navigation.js';
-import { loadKnowledgePage, saveKnowledgePage, type LoadedKnowledgePage } from '../../storage/knowledge-page-store.js';
+import {
+  deriveKnowledgePageSummary,
+  loadKnowledgePage,
+  saveKnowledgePage,
+  type LoadedKnowledgePage
+} from '../../storage/knowledge-page-store.js';
 import { saveRequestRunState } from '../../storage/request-run-state-store.js';
-import { loadSourceManifest } from '../../storage/source-manifest-store.js';
+import { isIngestibleSourceManifestStatus, loadSourceManifest } from '../../storage/source-manifest-store.js';
 import { syncReviewTask } from '../review/sync-review-task.js';
 import { readRawDocument } from './read-raw-document.js';
 
@@ -24,30 +29,18 @@ export interface RunIngestFlowResult {
 export async function runIngestFlow(root: string, input: RunIngestFlowInput): Promise<RunIngestFlowResult> {
   const manifest = await loadSourceManifest(root, input.sourceId);
 
-  if (manifest.status !== 'accepted') {
-    throw new Error(`Invalid ingest source: ${manifest.id} is not accepted`);
+  if (!isIngestibleSourceManifestStatus(manifest.status)) {
+    throw new Error(`Invalid ingest source: ${manifest.id} cannot be ingested from status ${manifest.status}`);
   }
 
   const rawBody = await readRawDocument(root, manifest.path);
-  const topicSlug = slugify(manifest.title);
   const sourcePath = `wiki/sources/${manifest.id}.md`;
-  const topicPath = `wiki/topics/${topicSlug}.md`;
-  const summary = summarize(rawBody);
+  const narrative = summarize(rawBody);
+  const summary = deriveKnowledgePageSummary(narrative, manifest.title, rawBody);
   const tags = deriveTags(manifest.title, rawBody);
   const sourcePage = createKnowledgePage({
     path: sourcePath,
     kind: 'source',
-    title: manifest.title,
-    summary,
-    tags,
-    source_refs: [manifest.path],
-    outgoing_links: [topicPath],
-    status: 'active',
-    updated_at: manifest.imported_at
-  });
-  const topicPage = createKnowledgePage({
-    path: topicPath,
-    kind: 'topic',
     title: manifest.title,
     summary,
     tags,
@@ -57,48 +50,20 @@ export async function runIngestFlow(root: string, input: RunIngestFlowInput): Pr
     updated_at: manifest.imported_at
   });
   const sourceBody = renderSourceBody(manifest.title, manifest.path, rawBody);
-  const topicBody = renderTopicBody(manifest.title, summary);
   const existingSource = await loadPageIfExists(root, 'source', manifest.id);
-  const existingTopic = await loadPageIfExists(root, 'topic', topicSlug);
   const sourceChanged = hasPageChanged(existingSource, sourcePage, sourceBody);
-  const topicChanged = hasPageChanged(existingTopic, topicPage, topicBody);
-  const rewritesCoreTopic =
-    existingTopic !== null && topicChanged && !sameStringArray(existingTopic.page.source_refs, [manifest.path]);
-
-  const changedTargets: string[] = [];
-
-  if (sourceChanged) {
-    changedTargets.push(sourcePath);
-  }
-
-  if (topicChanged) {
-    changedTargets.push(topicPath);
-  }
-
-  const writesNavigation = changedTargets.length > 0;
-
-  if (writesNavigation) {
-    changedTargets.push('wiki/index.md', 'wiki/log.md');
-  }
-
+  const changedTargets = sourceChanged ? [sourcePath, 'wiki/index.md', 'wiki/log.md'] : [];
   const changeSet = createChangeSet({
     target_files: changedTargets,
-    patch_summary:
-      changedTargets.length === 0
-        ? 'no wiki changes required'
-        : rewritesCoreTopic
-          ? 'rewrite existing multi-source topic page'
-          : 'apply accepted source patch',
-    rationale: `ingest accepted source ${manifest.id}`,
+    patch_summary: changedTargets.length === 0 ? 'no wiki changes required' : 'apply accepted source page patch',
+    rationale: `ingest source ${manifest.id}`,
     source_refs: [manifest.path],
-    risk_level: rewritesCoreTopic ? 'high' : 'low',
-    needs_review: rewritesCoreTopic
+    risk_level: 'low',
+    needs_review: false
   });
-  const review = evaluateReviewGate(changeSet, {
-    rewritesCoreTopic
-  });
+  const review = evaluateReviewGate(changeSet, {});
 
-  if (review.needs_review || changedTargets.length === 0) {
+  if (changedTargets.length === 0) {
     await persistRunState(root, input, manifest.path, changeSet, review, []);
 
     return {
@@ -110,15 +75,8 @@ export async function runIngestFlow(root: string, input: RunIngestFlowInput): Pr
 
   const persisted: string[] = [];
 
-  if (sourceChanged) {
-    await saveKnowledgePage(root, sourcePage, sourceBody);
-    persisted.push(sourcePath);
-  }
-
-  if (topicChanged) {
-    await saveKnowledgePage(root, topicPage, topicBody);
-    persisted.push(topicPath);
-  }
+  await saveKnowledgePage(root, sourcePage, sourceBody);
+  persisted.push(sourcePath);
 
   if (await rewriteWikiIndex(root)) {
     persisted.push('wiki/index.md');
@@ -150,7 +108,7 @@ async function persistRunState(
       run_id: input.runId,
       user_request: input.userRequest,
       intent: 'ingest',
-      plan: ['read accepted raw source', 'derive wiki patch', review.needs_review ? 'queue review gate' : 'apply patch'],
+      plan: ['read raw source', 'derive wiki patch', review.needs_review ? 'queue review gate' : 'apply patch'],
       status: review.needs_review ? 'needs_review' : 'done',
       evidence: [sourceRef],
       touched_files: touchedFiles,
@@ -226,12 +184,3 @@ function tokenize(value: string): string[] {
 function renderSourceBody(title: string, rawPath: string, rawBody: string): string {
   return `# ${title}\n\nSource: ${rawPath}\n\n${rawBody.trim()}\n`;
 }
-
-function renderTopicBody(title: string, summary: string): string {
-  return `# ${title}\n\n${summary}\n`;
-}
-
-function slugify(value: string): string {
-  return value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join('-');
-}
-

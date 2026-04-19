@@ -133,7 +133,7 @@ export async function runQueryFlow(root: string, input: RunQueryFlowInput): Prom
     ]);
     const outgoingLinks = uniqueStrings(selectedEvidence.map((item) => item.loaded.page.path));
     const tags = uniqueStrings(selectedEvidence.flatMap((item) => item.loaded.page.tags));
-    const summary = summarizeAnswer(answer);
+    const summary = summarizePersistedQuery(selectedEvidence, answer);
     const body = renderQueryBody(input.question, answer, selectedEvidence, rawEvidence);
     const page = createKnowledgePage({
       path: queryPath,
@@ -442,7 +442,7 @@ function buildWikiEvidence(evidence: QueryEvidence[]): QueryWikiEvidence[] {
     path: item.loaded.page.path,
     kind: item.loaded.page.kind,
     title: item.loaded.page.title,
-    summary: item.loaded.page.summary || extractAnswer(item.loaded.body),
+    summary: summarizeBody(item.loaded.body) || item.loaded.page.summary,
     bodyExcerpt: summarizeBody(item.loaded.body),
     sourceRefs: [...item.loaded.page.source_refs],
     outgoingLinks: [...item.loaded.page.outgoing_links],
@@ -454,8 +454,8 @@ function buildDeterministicAnswer(evidence: QueryEvidence[], rawEvidence: RawEvi
   const navigationSummary = evidence
     .map((item) => {
       const page = item.loaded.page;
-      const summary = page.summary || extractAnswer(item.loaded.body);
-      return `${page.title} (${page.path}): ${summary}`;
+      const narrative = summarizeBody(item.loaded.body) || page.summary || extractAnswer(item.loaded.body);
+      return `${page.title} (${page.path}): ${narrative}`;
     })
     .join(' ');
 
@@ -519,6 +519,18 @@ function summarizeAnswer(answer: string): string {
     .slice(0, 2)
     .join(' ')
     .slice(0, 280);
+}
+
+function summarizePersistedQuery(evidence: QueryEvidence[], answer: string): string {
+  for (const item of evidence) {
+    const narrative = summarizeBody(item.loaded.body);
+
+    if (narrative.length > 0) {
+      return narrative;
+    }
+  }
+
+  return summarizeAnswer(answer);
 }
 
 function extractAnswer(body: string): string {

@@ -1,7 +1,7 @@
 import type { KnowledgePageResponseDto, KnowledgePageLinkDto } from '../dto/knowledge-page.js';
-import type { KnowledgePageKind } from '../../../domain/knowledge-page.js';
+import type { KnowledgePage, KnowledgePageKind } from '../../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../../storage/list-knowledge-pages.js';
-import { loadKnowledgePage, type LoadedKnowledgePage } from '../../../storage/knowledge-page-store.js';
+import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../../storage/knowledge-page-store.js';
 import { listSourceManifests } from '../../../storage/source-manifest-store.js';
 
 export async function buildKnowledgePageResponseDto(
@@ -11,20 +11,20 @@ export async function buildKnowledgePageResponseDto(
 ): Promise<KnowledgePageResponseDto> {
   const loaded = await loadKnowledgePage(root, kind, slug);
   const [allPages, manifests] = await Promise.all([loadAllKnowledgePages(root), listSourceManifests(root)]);
-  const pageSummaries = new Map(allPages.map((entry) => [entry.page.path, toKnowledgePageLinkDto(entry.page)]));
+  const pageSummaries = new Map(allPages.map((page) => [page.path, toKnowledgePageLinkDto(page)]));
   const manifestByPath = new Map(manifests.map((manifest) => [manifest.path, manifest]));
   const currentSourceRefs = new Set(loaded.page.source_refs);
 
   const backlinks = allPages
-    .filter((entry) => entry.page.path !== loaded.page.path && entry.page.outgoing_links.includes(loaded.page.path))
-    .map((entry) => toKnowledgePageLinkDto(entry.page))
+    .filter((page) => page.path !== loaded.page.path && page.outgoing_links.includes(loaded.page.path))
+    .map((page) => toKnowledgePageLinkDto(page))
     .sort((left, right) => left.path.localeCompare(right.path));
 
   const relatedBySource = allPages
-    .filter((entry) => entry.page.path !== loaded.page.path)
-    .map((entry) => ({
-      ...toKnowledgePageLinkDto(entry.page),
-      shared_source_refs: entry.page.source_refs.filter((sourceRef) => currentSourceRefs.has(sourceRef))
+    .filter((page) => page.path !== loaded.page.path)
+    .map((page) => ({
+      ...toKnowledgePageLinkDto(page),
+      shared_source_refs: page.source_refs.filter((sourceRef) => currentSourceRefs.has(sourceRef))
     }))
     .filter((entry) => entry.shared_source_refs.length > 0)
     .sort((left, right) => right.shared_source_refs.length - left.shared_source_refs.length || left.path.localeCompare(right.path));
@@ -74,7 +74,7 @@ export async function buildKnowledgePageResponseDto(
   };
 }
 
-async function loadAllKnowledgePages(root: string): Promise<LoadedKnowledgePage[]> {
+async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
   const [sources, entities, topics, queries] = await Promise.all([
     listKnowledgePages(root, 'source'),
     listKnowledgePages(root, 'entity'),
@@ -83,14 +83,14 @@ async function loadAllKnowledgePages(root: string): Promise<LoadedKnowledgePage[
   ]);
 
   return Promise.all([
-    ...sources.map((pageSlug) => loadKnowledgePage(root, 'source', pageSlug)),
-    ...entities.map((pageSlug) => loadKnowledgePage(root, 'entity', pageSlug)),
-    ...topics.map((pageSlug) => loadKnowledgePage(root, 'topic', pageSlug)),
-    ...queries.map((pageSlug) => loadKnowledgePage(root, 'query', pageSlug))
+    ...sources.map((pageSlug) => loadKnowledgePageMetadata(root, 'source', pageSlug)),
+    ...entities.map((pageSlug) => loadKnowledgePageMetadata(root, 'entity', pageSlug)),
+    ...topics.map((pageSlug) => loadKnowledgePageMetadata(root, 'topic', pageSlug)),
+    ...queries.map((pageSlug) => loadKnowledgePageMetadata(root, 'query', pageSlug))
   ]);
 }
 
-function toKnowledgePageLinkDto(page: LoadedKnowledgePage['page']): KnowledgePageLinkDto {
+function toKnowledgePageLinkDto(page: KnowledgePage): KnowledgePageLinkDto {
   const slug = page.path.split('/').at(-1)?.replace(/\.md$/u, '') ?? page.title;
 
   return {

@@ -29,6 +29,7 @@ export interface ProjectPaths {
   stateTasks: string;
   stateChatSessions: string;
   stateChatSettings: string;
+  stateChatAttachments: string;
   projectEnv: string;
 }
 
@@ -70,6 +71,7 @@ export function buildProjectPaths(root: string): ProjectPaths {
     stateTasks: path.join(stateArtifacts, 'tasks'),
     stateChatSessions: path.join(stateArtifacts, 'chat-sessions'),
     stateChatSettings: path.join(stateArtifacts, 'chat-settings.json'),
+    stateChatAttachments: path.join(stateArtifacts, 'chat-attachments'),
     projectEnv: path.join(root, '.env')
   };
 }

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import {
+  loadKnowledgePageMetadata,
   loadKnowledgePage,
   saveKnowledgePage
 } from '../../src/storage/knowledge-page-store.js';
@@ -84,6 +85,61 @@ describe('saveKnowledgePage', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('derives a non-empty short summary from the body when the page summary is blank', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-page-'));
+
+    try {
+      const page = createKnowledgePage({
+        path: 'wiki/topics/java-concurrency.md',
+        kind: 'topic',
+        title: 'Java Concurrency',
+        summary: '',
+        source_refs: ['raw/accepted/design.md'],
+        status: 'active',
+        updated_at: '2026-04-12T00:00:00.000Z'
+      });
+
+      await saveKnowledgePage(
+        root,
+        page,
+        '# Java Concurrency\n\nThis guide explains practical concurrency patterns and debugging techniques for production systems.\n'
+      );
+
+      const loaded = await loadKnowledgePage(root, 'topic', 'java-concurrency');
+
+      expect(loaded.page.summary.length).toBeGreaterThan(0);
+      expect(Array.from(loaded.page.summary).length).toBeLessThanOrEqual(30);
+      expect(loaded.page.summary).toContain('This guide explains');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('truncates an oversized provided summary to 30 characters when saving', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-page-'));
+
+    try {
+      const page = createKnowledgePage({
+        path: 'wiki/topics/oversized-summary.md',
+        kind: 'topic',
+        title: 'Oversized Summary',
+        summary: 'This summary is much longer than thirty characters and must be trimmed before persistence.',
+        source_refs: ['raw/accepted/design.md'],
+        status: 'active',
+        updated_at: '2026-04-12T00:00:00.000Z'
+      });
+
+      await saveKnowledgePage(root, page, '# Oversized Summary\n');
+
+      const loaded = await loadKnowledgePage(root, 'topic', 'oversized-summary');
+
+      expect(Array.from(loaded.page.summary)).toHaveLength(30);
+      expect(loaded.page.summary).toBe('This summary is much longer th');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('knowledge page storage', () => {
@@ -139,11 +195,42 @@ describe('knowledge page storage', () => {
       await saveKnowledgePage(root, page, body);
 
       const loaded = await loadKnowledgePage(root, kind, slug);
+      const expectedSummary = page.summary.length > 0 ? page.summary : body.replace(/^# .+\n+/u, '').trim().slice(0, 30);
 
       expect(loaded).toEqual({
-        page,
+        page: {
+          ...page,
+          summary: expectedSummary
+        },
         body
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads page metadata without reading the body content', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-page-'));
+
+    try {
+      const page = createKnowledgePage({
+        path: 'wiki/sources/design-spec.md',
+        kind: 'source',
+        title: 'Design Spec',
+        summary: 'Compact source summary.',
+        aliases: ['Spec'],
+        tags: ['design'],
+        source_refs: ['raw/accepted/design.md'],
+        outgoing_links: ['wiki/topics/llm-wiki.md'],
+        status: 'active',
+        updated_at: '2026-04-12T00:00:00.000Z'
+      });
+
+      await saveKnowledgePage(root, page, '# Design Spec\n\nPrimary source summary.\n\n'.padEnd(8_192, 'x'));
+
+      const loaded = await loadKnowledgePageMetadata(root, 'source', 'design-spec');
+
+      expect(loaded).toEqual(page);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

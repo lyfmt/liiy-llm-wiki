@@ -1,4 +1,4 @@
-import type { FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import {
   Blocks,
   Brain,
@@ -26,9 +26,11 @@ import {
   getChatSession,
   getChatSessions,
   createChatSession,
-  startChatRun
+  startChatRun,
+  uploadChatAttachment
 } from '@/lib/api';
 import type {
+  ChatAttachmentRef,
   ChatRunUiState,
   ChatSessionDetail,
   ChatSessionSummary,
@@ -96,13 +98,16 @@ export function AiChatPage() {
   const [loading, setLoading] = useState(true);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [input, setInput] = useState('');
   const [, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<string[]>(['web_search', 'mcp_fs']);
+  const [pendingAttachments, setPendingAttachments] = useState<Array<ChatAttachmentRef & { session_id: string }>>([]);
 
   async function loadSessions() {
     const value = await getChatSessions();
@@ -192,6 +197,10 @@ export function AiChatPage() {
   }, [loading, sessionLoading, selectedSession, selectedSessionId]);
 
   useEffect(() => {
+    setPendingAttachments((current) => current.filter((attachment) => attachment.session_id === selectedSessionId));
+  }, [selectedSessionId]);
+
+  useEffect(() => {
     if (!selectedSessionId || selectedSession?.session.status !== 'running') {
       return;
     }
@@ -229,16 +238,63 @@ export function AiChatPage() {
     setActiveTools((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
 
+  async function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+
+    if (!files.length || uploading) {
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const uploaded: Array<ChatAttachmentRef & { session_id: string }> = [];
+
+      for (const file of files) {
+        const result = await uploadChatAttachment({
+          sessionId: selectedSessionId || undefined,
+          fileName: file.name,
+          mimeType: file.type || inferMimeTypeFromName(file.name),
+          dataBase64: await fileToBase64(file)
+        });
+
+        uploaded.push({
+          ...result.attachment,
+          session_id: result.session_id
+        });
+
+        if (!selectedSessionId || selectedSessionId !== result.session_id) {
+          await loadSessions();
+          await loadSessionDetail(result.session_id, { syncUrl: true });
+        }
+      }
+
+      setPendingAttachments((current) => [...current, ...uploaded]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
   async function handleSend(event?: FormEvent<HTMLFormElement>, customInput?: string) {
     event?.preventDefault();
     const prompt = (customInput ?? input).trim();
-    if (!prompt || submitting) return;
+    if (!prompt || submitting || uploading) return;
 
     setSubmitting(true);
     setError(null);
 
     try {
-      const result = await startChatRun(prompt, selectedSessionId || undefined);
+      const result = await startChatRun(
+        prompt,
+        selectedSessionId || undefined,
+        pendingAttachments.map((attachment) => attachment.attachment_id)
+      );
 
       if (!result.run_id) {
         setSelectedRun(null);
@@ -246,6 +302,7 @@ export function AiChatPage() {
       }
 
       setInput('');
+      setPendingAttachments([]);
       setIsExpanded(false);
       await loadSessions();
       await loadSessionDetail(result.session_id || selectedSessionId || '', { syncUrl: true });
@@ -257,6 +314,7 @@ export function AiChatPage() {
   }
 
   const selectedStatusText = useMemo(() => {
+    if (uploading) return 'UPLOADING...';
     if (submitting) return 'PROCESSING...';
     switch (selectedSession?.session.status) {
       case 'running':
@@ -270,7 +328,7 @@ export function AiChatPage() {
       default:
         return 'IDLE';
     }
-  }, [selectedSession, submitting]);
+  }, [selectedSession, submitting, uploading]);
 
   const contextLoad = useMemo(() => {
     const count = selectedRun?.events.length ?? 0;
@@ -443,7 +501,14 @@ export function AiChatPage() {
                   <div key={run.request_run.run_id} className="space-y-8">
                     <div className="flex justify-end">
                       <div className="max-w-[85%] bg-white p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
-                        {run.request_run.user_request}
+                        <div>{run.request_run.user_request}</div>
+                        {run.request_run.attachments.length ? (
+                          <div className="mt-3 border-t-2 border-[#1C2833] pt-3 text-sm text-[#5D6D7E]">
+                            {run.request_run.attachments.map((attachment) => (
+                              <div key={attachment.attachment_id}>{attachment.file_name}</div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
@@ -577,10 +642,24 @@ export function AiChatPage() {
                 }}
               />
 
+              {pendingAttachments.length ? (
+                <div className="flex flex-wrap gap-2 border-t-2 border-[#1C2833] px-3 py-2">
+                  {pendingAttachments.map((attachment) => (
+                    <div
+                      key={attachment.attachment_id}
+                      className="border-2 border-[#1C2833] bg-[#F9FCFF] px-2 py-1 text-xs font-bold uppercase text-[#1C2833]"
+                    >
+                      {attachment.file_name}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
               <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t-2 border-[#1C2833]">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => fileInputRef.current?.click()}
                     className="p-2 text-[#1C2833] hover:bg-[#F0F8FF] border-2 border-transparent hover:border-[#1C2833]"
                     title="ATTACH FILE"
                   >
@@ -603,9 +682,9 @@ export function AiChatPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="submit"
-                    disabled={!input.trim() || submitting}
+                    disabled={!input.trim() || submitting || uploading}
                     className={`pixel-button text-xl px-6 py-2 ${
-                      input.trim() && !submitting
+                      input.trim() && !submitting && !uploading
                         ? 'bg-[#66CCFF]'
                         : 'opacity-50 grayscale cursor-not-allowed'
                     }`}
@@ -615,11 +694,45 @@ export function AiChatPage() {
                 </div>
               </div>
             </form>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => void handleFileSelection(event)}
+            />
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+function inferMimeTypeFromName(fileName: string): string {
+  const normalized = fileName.toLowerCase();
+
+  if (normalized.endsWith('.pdf')) return 'application/pdf';
+  if (normalized.endsWith('.png')) return 'image/png';
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg';
+  if (normalized.endsWith('.gif')) return 'image/gif';
+  if (normalized.endsWith('.webp')) return 'image/webp';
+  if (normalized.endsWith('.md')) return 'text/markdown';
+  if (normalized.endsWith('.txt')) return 'text/plain';
+  if (normalized.endsWith('.json')) return 'application/json';
+
+  return 'application/octet-stream';
 }
 
 function MagicCircleBackground() {

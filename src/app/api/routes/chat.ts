@@ -28,16 +28,23 @@ import {
   loadChatSessionDetailDto,
   recordRunInChatSession
 } from '../services/chat-session.js';
-import { parseChatRunStartRequestDto, parseChatSettingsUpdateRequestDto } from '../services/command.js';
+import {
+  parseChatAttachmentUploadRequestDto,
+  parseChatRunStartRequestDto,
+  parseChatSettingsUpdateRequestDto
+} from '../services/command.js';
 import type { ApiRouteContext } from '../route-context.js';
 import { loadRequestRunStateIfExists, readJsonBody, writeJson } from '../route-helpers.js';
 import { createChatSettings } from '../../../domain/chat-settings.js';
+import type { ChatAttachmentRef } from '../../../domain/chat-attachment.js';
 import { createRequestRun } from '../../../domain/request-run.js';
 import { syncReviewTask } from '../../../flows/review/sync-review-task.js';
+import { buildUserMessageWithAttachments } from '../../../runtime/chat-attachment-content.js';
 import { buildIntentPlan, classifyIntent } from '../../../runtime/intent-classifier.js';
 import { createRuntimeRunState } from '../../../runtime/request-run-state.js';
 import type { RunRuntimeAgentResult } from '../../../runtime/agent-session.js';
 import { resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
+import { resolveChatAttachments, saveBufferedChatAttachment, toChatAttachmentRef } from '../../../storage/chat-attachment-store.js';
 import { saveRequestRunState } from '../../../storage/request-run-state-store.js';
 import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
@@ -109,6 +116,26 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
         run_count: session.run_ids.length
       })
     );
+    return true;
+  }
+
+  if (method === 'POST' && pathname === '/api/chat/uploads') {
+    const payload = parseChatAttachmentUploadRequestDto(await readJsonBody(request));
+    const chatSession = payload.sessionId
+      ? await ensureChatSession(root, payload.fileName, payload.sessionId)
+      : await createChatSessionForRequest(root, payload.fileName);
+    const attachment = await saveBufferedChatAttachment(root, {
+      sessionId: chatSession.session_id,
+      fileName: payload.fileName,
+      mimeType: payload.mimeType,
+      data: Buffer.from(payload.dataBase64, 'base64')
+    });
+
+    writeJson(response, 201, {
+      ok: true,
+      session_id: chatSession.session_id,
+      attachment: toChatAttachmentRef(attachment)
+    });
     return true;
   }
 
@@ -207,6 +234,10 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
 
     const chatSession = await ensureChatSession(root, userRequest, payload.sessionId);
     const conversationHistory = await buildChatConversationHistory(root, chatSession.session_id);
+    const attachments = (await resolveChatAttachments(root, payload.attachmentIds ?? [], chatSession.session_id)).map((attachment) =>
+      toChatAttachmentRef(attachment)
+    );
+    const currentUserMessage = await buildUserMessageWithAttachments(root, userRequest, attachments);
     const runId = randomUUID();
     const intent = classifyIntent(userRequest);
     const plan = buildIntentPlan(intent);
@@ -219,6 +250,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       toolOutcomes: [],
       assistantSummary: 'Run accepted. Waiting for model and tool activity.',
       status: 'running',
+      attachments,
       events: [
         {
           type: 'run_started',
@@ -251,6 +283,8 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       runId,
       sessionId: chatSession.session_id,
       conversationHistory,
+      currentUserMessage,
+      attachments,
       model: resolvedRuntimeModel.model,
       getApiKey: resolvedRuntimeModel.getApiKey,
       allowQueryWriteback: settings.allow_query_writeback,
@@ -293,7 +327,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
     });
 
     if (launchSnapshot.type === 'resolved') {
-      await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, launchSnapshot.result);
+      await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, attachments, launchSnapshot.result);
       const [runState, runResponse] = await Promise.all([
         loadRequestRunStateIfExists(root, runId),
         summarizeChatRunResponseDto(root, runId)
@@ -317,17 +351,17 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
 
     if (launchSnapshot.type === 'rejected') {
       const launchError = launchSnapshot.error;
-      await persistFailedChatRunLaunch(root, runId, chatSession.session_id, userRequest, intent, plan, launchError);
+      await persistFailedChatRunLaunch(root, runId, chatSession.session_id, userRequest, attachments, intent, plan, launchError);
       writeJson(response, 500, await buildFailedChatRunResponseDto(root, runId, launchError));
       return true;
     }
 
     void launchPromise.then(
       async (result) => {
-        await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, result);
+        await persistResolvedChatRunIfStillRunning(root, runId, chatSession.session_id, userRequest, attachments, result);
       },
       async (error: unknown) => {
-        await persistFailedChatRunLaunchIfStillRunning(root, runId, chatSession.session_id, userRequest, intent, plan, error);
+        await persistFailedChatRunLaunchIfStillRunning(root, runId, chatSession.session_id, userRequest, attachments, intent, plan, error);
       }
     );
 
@@ -356,6 +390,7 @@ async function persistResolvedChatRunIfStillRunning(
   runId: string,
   sessionId: string,
   userRequest: string,
+  attachments: ChatAttachmentRef[],
   result: RunRuntimeAgentResult
 ): Promise<void> {
   const existingRunState = await loadRequestRunStateIfExists(root, runId);
@@ -371,7 +406,8 @@ async function persistResolvedChatRunIfStillRunning(
     intent: result.intent,
     plan: result.plan,
     toolOutcomes: result.toolOutcomes,
-    assistantSummary: result.assistantText
+    assistantSummary: result.assistantText,
+    attachments
   });
 
   await saveRequestRunState(root, persistedState);
@@ -389,6 +425,7 @@ async function persistFailedChatRunLaunchIfStillRunning(
   runId: string,
   sessionId: string,
   userRequest: string,
+  attachments: ChatAttachmentRef[],
   intent: string,
   plan: string[],
   error: unknown
@@ -399,7 +436,7 @@ async function persistFailedChatRunLaunchIfStillRunning(
     return;
   }
 
-  await persistFailedChatRunLaunch(root, runId, sessionId, userRequest, intent, plan, error);
+  await persistFailedChatRunLaunch(root, runId, sessionId, userRequest, attachments, intent, plan, error);
 }
 
 async function persistFailedChatRunLaunch(
@@ -407,6 +444,7 @@ async function persistFailedChatRunLaunch(
   runId: string,
   sessionId: string,
   userRequest: string,
+  attachments: ChatAttachmentRef[],
   intent: string,
   plan: string[],
   error: unknown
@@ -424,7 +462,8 @@ async function persistFailedChatRunLaunch(
       evidence: [],
       touched_files: [],
       decisions: [],
-      result_summary: message
+      result_summary: message,
+      attachments
     }),
     tool_outcomes: [],
     events: [

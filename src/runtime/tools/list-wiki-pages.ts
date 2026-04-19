@@ -1,9 +1,9 @@
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
-import type { KnowledgePageKind } from '../../domain/knowledge-page.js';
+import type { KnowledgePage, KnowledgePageKind } from '../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../storage/list-knowledge-pages.js';
-import { loadKnowledgePage } from '../../storage/knowledge-page-store.js';
+import { loadKnowledgePageMetadata } from '../../storage/knowledge-page-store.js';
 import type { RuntimeContext } from '../runtime-context.js';
 import type { RuntimeToolOutcome } from '../request-run-state.js';
 
@@ -37,11 +37,11 @@ export function createListWikiPagesTool(runtimeContext: RuntimeContext): AgentTo
       const lines = ['Navigation pages:', '- wiki/index.md', '- wiki/log.md'];
       const evidence: string[] = [];
       let totalReturned = 0;
-      const loadedPagesByKind = new Map<KnowledgePageKind, Awaited<ReturnType<typeof loadKnowledgePage>>[]>();
+      const loadedPagesByKind = new Map<KnowledgePageKind, KnowledgePage[]>();
 
       for (const kind of allKinds) {
         const slugs = await listKnowledgePages(runtimeContext.root, kind);
-        loadedPagesByKind.set(kind, await Promise.all(slugs.map(async (slug) => loadKnowledgePage(runtimeContext.root, kind, slug))));
+        loadedPagesByKind.set(kind, await Promise.all(slugs.map(async (slug) => loadKnowledgePageMetadata(runtimeContext.root, kind, slug))));
       }
 
       const incomingLinkCounts = buildIncomingLinkCounts([...loadedPagesByKind.values()].flat());
@@ -57,7 +57,7 @@ export function createListWikiPagesTool(runtimeContext: RuntimeContext): AgentTo
         }
 
         for (const entry of rankedPages) {
-          const page = entry.loaded.page;
+          const page = entry.page;
           evidence.push(page.path);
           totalReturned += 1;
           lines.push(
@@ -96,25 +96,23 @@ function normalizeLimit(limit: number | undefined): number {
 }
 
 function rankPages(
-  loadedPages: Awaited<ReturnType<typeof loadKnowledgePage>>[],
+  pages: KnowledgePage[],
   normalizedQuery: string
-): Array<{ loaded: Awaited<ReturnType<typeof loadKnowledgePage>>; score: number }> {
+): Array<{ page: KnowledgePage; score: number }> {
   if (normalizedQuery === '') {
-    return loadedPages.map((loaded) => ({ loaded, score: 0 }));
+    return pages.map((page) => ({ page, score: 0 }));
   }
 
   const queryTokens = tokenize(normalizedQuery);
 
-  return loadedPages
-    .map((loaded) => {
-      const page = loaded.page;
+  return pages
+    .map((page) => {
       const haystacks = [
         { value: page.title, weight: 5 },
         { value: page.aliases.join(' '), weight: 4 },
         { value: page.summary, weight: 3 },
         { value: page.tags.join(' '), weight: 2 },
-        { value: page.outgoing_links.join(' '), weight: 1 },
-        { value: loaded.body, weight: 1 }
+        { value: page.outgoing_links.join(' '), weight: 1 }
       ];
       let score = 0;
 
@@ -126,23 +124,21 @@ function rankPages(
         }
       }
 
-      return { loaded, score };
+      return { page, score };
     })
     .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || left.loaded.page.path.localeCompare(right.loaded.page.path));
+    .sort((left, right) => right.score - left.score || left.page.path.localeCompare(right.page.path));
 }
 
 function tokenize(value: string): string[] {
   return value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-function buildIncomingLinkCounts(
-  loadedPages: Awaited<ReturnType<typeof loadKnowledgePage>>[]
-): Map<string, number> {
+function buildIncomingLinkCounts(pages: KnowledgePage[]): Map<string, number> {
   const incomingLinkCounts = new Map<string, number>();
 
-  for (const loaded of loadedPages) {
-    for (const outgoingLink of loaded.page.outgoing_links) {
+  for (const page of pages) {
+    for (const outgoingLink of page.outgoing_links) {
       incomingLinkCounts.set(outgoingLink, (incomingLinkCounts.get(outgoingLink) ?? 0) + 1);
     }
   }

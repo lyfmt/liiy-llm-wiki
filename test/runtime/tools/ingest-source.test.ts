@@ -45,7 +45,6 @@ describe('createIngestSourceTool', () => {
 
       expect(result.details.touchedFiles).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
@@ -91,11 +90,54 @@ describe('createIngestSourceTool', () => {
       expect(result.details.resultMarkdown).toContain('Resolved raw/accepted/design.md to src-001.');
       expect(result.details.touchedFiles).toEqual([
         'wiki/sources/src-001.md',
-        'wiki/topics/patch-first-design.md',
         'wiki/index.md',
         'wiki/log.md'
       ]);
       expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain('src-001');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ingests an inbox source manifest by sourceId once it is registered', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-ingest-tool-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'buffered-brief.md'),
+        '# Uploaded File\n\nAttachment body promoted into source.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-buffered-001',
+          path: 'raw/accepted/buffered-brief.md',
+          title: 'Buffered Brief',
+          type: 'markdown',
+          status: 'inbox',
+          hash: 'sha256:buffered',
+          imported_at: '2026-04-18T00:00:00.000Z'
+        })
+      );
+      const tool = createIngestSourceTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-parent-inbox-001'
+        })
+      );
+
+      const result = await tool.execute('tool-call-inbox-1', {
+        sourceId: 'src-buffered-001'
+      });
+
+      expect(result.details.summary).toBe('ingest completed');
+      expect(result.details.touchedFiles).toEqual([
+        'wiki/sources/src-buffered-001.md',
+        'wiki/index.md',
+        'wiki/log.md'
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -158,7 +200,7 @@ describe('createIngestSourceTool', () => {
         tool.execute('tool-call-5', {
           sourcePath: 'raw/accepted/missing.md'
         })
-      ).rejects.toThrow('No accepted source manifest found for path: raw/accepted/missing.md');
+      ).rejects.toThrow('No ingestible source manifest found for path: raw/accepted/missing.md');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -204,7 +246,7 @@ describe('createIngestSourceTool', () => {
         tool.execute('tool-call-6', {
           sourcePath: 'raw/accepted/design.md'
         })
-      ).rejects.toThrow('Ambiguous accepted source manifest for path raw/accepted/design.md: src-001, src-002');
+      ).rejects.toThrow('Ambiguous ingestible source manifest for path raw/accepted/design.md: src-001, src-002');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,6 +1,14 @@
 import type { RuntimeIntent } from './intent-classifier.js';
+import { formatSkillsForPrompt } from './skills/format.js';
+import type { SkillSummary } from './skills/types.js';
 
-export function buildRuntimeSystemPrompt(intent: RuntimeIntent): string {
+export interface BuildRuntimeSystemPromptOptions {
+  skills?: SkillSummary[];
+}
+
+export function buildRuntimeSystemPrompt(intent: RuntimeIntent, options: BuildRuntimeSystemPromptOptions = {}): string {
+  const skills = options.skills ?? [];
+
   return [
     '# Identity',
     'You are llm-wiki-liiy, a local-first knowledge agent for a wiki-centered knowledge base.',
@@ -26,6 +34,7 @@ export function buildRuntimeSystemPrompt(intent: RuntimeIntent): string {
     'If the listing reveals strong candidates, then read selectively.',
     'Only follow raw source refs when the raw evidence materially matters.',
     'Only use query_wiki when direct navigation and reading are still not enough to answer well.',
+    'Uploaded chat attachments are already part of context. Attachment handles may appear in the user message. If the user wants an uploaded file added to the source system, you may first promote it into a registered source and then ingest it. Ingesting a source registers or refreshes source-layer evidence; it does not automatically create topic pages.',
     '',
     '# Tool Strategy',
     'Tools are capabilities, not a fixed workflow.',
@@ -34,6 +43,16 @@ export function buildRuntimeSystemPrompt(intent: RuntimeIntent): string {
     'Choose the minimum helpful tool sequence for the current request.',
     'When several tools could help, prefer the smallest and most observable one first.',
     'When no tool is necessary, do not use one.',
+    ...(skills.length > 0
+      ? [
+          '',
+          '# Available Skills',
+          'Project skills are local capability bundles. Only summaries are in prompt context by default.',
+          'When one looks relevant, call read_skill with the skill name first.',
+          'If you decide to use that skill, call run_skill with the skill name and the concrete task instead of reconstructing the skill-owned tool chain yourself.',
+          formatSkillsForPrompt(skills)
+        ]
+      : []),
     '',
     '# Writeback and Governance',
     'Only draft or write back when the result has clear long-term value or the user explicitly wants wiki maintenance.',

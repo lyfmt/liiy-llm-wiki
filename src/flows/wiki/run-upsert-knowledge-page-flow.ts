@@ -2,7 +2,12 @@ import { createChangeSet, type ChangeSet } from '../../domain/change-set.js';
 import { createKnowledgePage, type KnowledgePage, type KnowledgePageKind } from '../../domain/knowledge-page.js';
 import { createRequestRun } from '../../domain/request-run.js';
 import { evaluateReviewGate, type ReviewGateDecision } from '../../policies/review-gate.js';
-import { loadKnowledgePage, saveKnowledgePage, type LoadedKnowledgePage } from '../../storage/knowledge-page-store.js';
+import {
+  deriveKnowledgePageSummary,
+  loadKnowledgePage,
+  saveKnowledgePage,
+  type LoadedKnowledgePage
+} from '../../storage/knowledge-page-store.js';
 import { saveRequestRunState } from '../../storage/request-run-state-store.js';
 import { syncReviewTask } from '../review/sync-review-task.js';
 import { appendWikiLog, rewriteWikiIndex } from './maintain-wiki-navigation.js';
@@ -36,19 +41,19 @@ export async function runUpsertKnowledgePageFlow(
   input: RunUpsertKnowledgePageFlowInput
 ): Promise<RunUpsertKnowledgePageFlowResult> {
   const pagePath = `wiki/${directoryNameForKind(input.kind)}/${input.slug}.md`;
+  const normalizedBody = normalizeBody(input.body, input.title);
   const page = createKnowledgePage({
     path: pagePath,
     kind: input.kind,
     title: input.title,
     aliases: input.aliases,
-    summary: input.summary,
+    summary: deriveKnowledgePageSummary(input.summary, input.title, normalizedBody),
     tags: input.tags,
     source_refs: input.source_refs,
     outgoing_links: input.outgoing_links,
     status: input.status,
     updated_at: input.updated_at
   });
-  const normalizedBody = normalizeBody(input.body, input.title);
   const existingPage = await loadPageIfExists(root, input.kind, input.slug);
   const pageChanged = hasPageChanged(existingPage, page, normalizedBody);
   const changedTargets = pageChanged ? [pagePath, 'wiki/index.md', 'wiki/log.md'] : [];

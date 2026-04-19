@@ -5,12 +5,17 @@ import {
   classifyIntent,
   createRuntimeContext,
   createRuntimeRunState,
+  discoverRuntimeSkills,
+  formatSkillsForPrompt,
   createDraftKnowledgePageTool,
   createDraftQueryPageTool,
   createApplyDraftUpsertTool,
+  createCreateSourceFromAttachmentTool,
   createFindSourceManifestTool,
   createIngestSourceTool,
   createListWikiPagesTool,
+  createReadSkillTool,
+  createRunSkillTool,
   createReadWikiPageTool,
   createListSourceManifestsTool,
   createReadSourceManifestTool,
@@ -25,13 +30,19 @@ import {
 import type {
   CreateRuntimeContextInput,
   CreateRuntimeRunStateInput,
+  SkillFrontmatter,
+  SkillSummary,
+  LoadedSkillDocument,
+  RuntimeSkillDiagnostic,
   DraftKnowledgePageParameters,
   DraftQueryPageParameters,
   ApplyDraftUpsertParameters,
+  CreateSourceFromAttachmentParameters,
   FindSourceManifestParameters,
   IngestSourceParameters,
   ListWikiPagesParameters,
   ReadWikiPageParameters,
+  RunSkillParameters,
   ListSourceManifestsParameters,
   ReadSourceManifestParameters,
   ReadRawSourceParameters,
@@ -50,12 +61,17 @@ describe('package entry runtime exports', () => {
     expect(typeof buildIntentPlan).toBe('function');
     expect(typeof createRuntimeContext).toBe('function');
     expect(typeof createRuntimeRunState).toBe('function');
+    expect(typeof discoverRuntimeSkills).toBe('function');
+    expect(typeof formatSkillsForPrompt).toBe('function');
     expect(typeof createDraftKnowledgePageTool).toBe('function');
     expect(typeof createDraftQueryPageTool).toBe('function');
     expect(typeof createApplyDraftUpsertTool).toBe('function');
+    expect(typeof createCreateSourceFromAttachmentTool).toBe('function');
     expect(typeof createFindSourceManifestTool).toBe('function');
     expect(typeof createIngestSourceTool).toBe('function');
     expect(typeof createListWikiPagesTool).toBe('function');
+    expect(typeof createReadSkillTool).toBe('function');
+    expect(typeof createRunSkillTool).toBe('function');
     expect(typeof createReadWikiPageTool).toBe('function');
     expect(typeof createListSourceManifestsTool).toBe('function');
     expect(typeof createReadSourceManifestTool).toBe('function');
@@ -70,14 +86,20 @@ describe('package entry runtime exports', () => {
     const intent: RuntimeIntent = 'query';
     const contextInput: CreateRuntimeContextInput | null = null;
     const stateInput: CreateRuntimeRunStateInput | null = null;
+    const skillFrontmatter: SkillFrontmatter | null = null;
+    const skillSummary: SkillSummary | null = null;
+    const loadedSkillDocument: LoadedSkillDocument | null = null;
+    const skillDiagnostic: RuntimeSkillDiagnostic | null = null;
     const toolOutcome: RuntimeToolOutcome | null = null;
     const agentInput: RunRuntimeAgentInput | null = null;
     const draftParams: DraftKnowledgePageParameters | null = null;
     const draftQueryParams: DraftQueryPageParameters | null = null;
     const applyDraftParams: ApplyDraftUpsertParameters | null = null;
+    const createSourceParams: CreateSourceFromAttachmentParameters | null = null;
     const findParams: FindSourceManifestParameters | null = null;
     const ingestParams: IngestSourceParameters | null = null;
     const listWikiPagesParams: ListWikiPagesParameters | null = null;
+    const runSkillParams: RunSkillParameters | null = null;
     const readWikiPageParams: ReadWikiPageParameters | null = null;
     const listSourceManifestsParams: ListSourceManifestsParameters | null = null;
     const readSourceManifestParams: ReadSourceManifestParameters | null = null;
@@ -90,14 +112,20 @@ describe('package entry runtime exports', () => {
     expect(intent).toBe('query');
     expect(contextInput).toBeNull();
     expect(stateInput).toBeNull();
+    expect(skillFrontmatter).toBeNull();
+    expect(skillSummary).toBeNull();
+    expect(loadedSkillDocument).toBeNull();
+    expect(skillDiagnostic).toBeNull();
     expect(toolOutcome).toBeNull();
     expect(agentInput).toBeNull();
     expect(draftParams).toBeNull();
     expect(draftQueryParams).toBeNull();
     expect(applyDraftParams).toBeNull();
+    expect(createSourceParams).toBeNull();
     expect(findParams).toBeNull();
     expect(ingestParams).toBeNull();
     expect(listWikiPagesParams).toBeNull();
+    expect(runSkillParams).toBeNull();
     expect(readWikiPageParams).toBeNull();
     expect(listSourceManifestsParams).toBeNull();
     expect(readSourceManifestParams).toBeNull();

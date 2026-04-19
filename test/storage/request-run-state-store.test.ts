@@ -144,7 +144,8 @@ describe('saveRequestRunState', () => {
         run_id: 'run-001',
         session_id: null,
         user_request: 'ingest this source',
-        intent: 'ingest'
+        intent: 'ingest',
+        attachments: []
       });
       expect(JSON.parse(await readFile(paths.plan, 'utf8'))).toEqual(['read raw source', 'update wiki']);
       expect(JSON.parse(await readFile(paths.evidence, 'utf8'))).toEqual(['raw/accepted/source.md']);
@@ -474,7 +475,8 @@ describe('request run state storage', () => {
           evidence: ['wiki/topics/llm-wiki.md'],
           touched_files: ['wiki/queries/storage.md'],
           decisions: ['write reusable query page'],
-          result_summary: 'saved answer'
+          result_summary: 'saved answer',
+          attachments: []
         },
         tool_outcomes: [
           {
