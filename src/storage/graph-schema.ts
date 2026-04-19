@@ -36,5 +36,8 @@ create table if not exists graph_edges (
   foreign key (from_id) references graph_nodes (id),
   foreign key (to_id) references graph_nodes (id)
 );
+
+create index if not exists graph_edges_from_id_idx on graph_edges (from_id);
+create index if not exists graph_edges_to_id_idx on graph_edges (to_id);
 `.trim();
 }

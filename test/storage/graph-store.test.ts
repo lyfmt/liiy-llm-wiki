@@ -40,6 +40,17 @@ describe('saveGraphNode', () => {
     );
 
     expect(calls[0]?.sql).toContain('insert into graph_nodes');
+    expect(calls[0]?.sql).not.toContain('created_at = excluded.created_at');
+    expect(calls[0]?.params[4]).toBe('[]');
+    expect(calls[0]?.params[10]).toBe('{"scope_note":"Architecture topic."}');
+  });
+
+  it('loads null when the graph node is missing', async () => {
+    const client = {
+      query: async () => ({ rows: [] })
+    };
+
+    await expect(loadGraphNode(client, 'topic:missing')).resolves.toBeNull();
   });
 });
 
@@ -73,7 +84,9 @@ describe('graph-store reads and writes edges', () => {
     );
 
     expect(calls[0]?.sql).toContain('insert into graph_edges');
+    expect(calls[0]?.sql).not.toContain('created_at = excluded.created_at');
     expect(calls[0]?.params).toContain(0);
+    expect(calls[0]?.params[11]).toBe('{"chapter":1}');
   });
 
   it('loads a graph node from the database client', async () => {
@@ -137,5 +150,14 @@ describe('graph-store reads and writes edges', () => {
     expect(calls[1]?.sql).toContain('where to_id = $1');
     expect(outgoing[0]?.edge_id).toBe('edge:supported-by:1');
     expect(incoming[0]?.edge_id).toBe('edge:supported-by:1');
+  });
+
+  it('returns empty edge lists when the database has no matches', async () => {
+    const client = {
+      query: async () => ({ rows: [] })
+    };
+
+    await expect(listOutgoingGraphEdges(client, 'assertion:none')).resolves.toEqual([]);
+    await expect(listIncomingGraphEdges(client, 'evidence:none')).resolves.toEqual([]);
   });
 });

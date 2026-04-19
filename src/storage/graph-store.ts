@@ -33,7 +33,6 @@ on conflict (id) do update set
   review_state = excluded.review_state,
   retrieval_text = excluded.retrieval_text,
   attributes = excluded.attributes,
-  created_at = excluded.created_at,
   updated_at = excluded.updated_at
 `.trim(),
     [
@@ -86,7 +85,6 @@ on conflict (edge_id) do update set
   review_state = excluded.review_state,
   sort_order = excluded.sort_order,
   qualifiers = excluded.qualifiers,
-  created_at = excluded.created_at,
   updated_at = excluded.updated_at
 `.trim(),
     [
