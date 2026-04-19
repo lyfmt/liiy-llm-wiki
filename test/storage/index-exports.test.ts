@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildKnowledgePagePath,
+  createGraphDatabasePool,
+  buildGraphSchemaSql,
   buildRequestRunArtifactPaths,
   buildSourceManifestPath,
   findAcceptedSourceManifestByPath,
@@ -10,9 +12,12 @@ import {
   findIngestibleSourceManifestCandidates,
   isIngestibleSourceManifestStatus,
   listKnowledgePages,
+  listIncomingGraphEdges,
   listKnowledgeTasks,
+  listOutgoingGraphEdges,
   listRequestRunIds,
   listSourceManifests,
+  loadGraphNode,
   loadChatSettings,
   loadKnowledgePage,
   loadKnowledgeTask,
@@ -20,6 +25,9 @@ import {
   loadRequestRunState,
   loadSourceManifest,
   parseProjectEnv,
+  resolveGraphDatabaseUrl,
+  saveGraphEdge,
+  saveGraphNode,
   saveChatSettings,
   saveKnowledgePage,
   saveKnowledgeTask,
@@ -31,6 +39,7 @@ import {
 } from '../../src/index.js';
 import type {
   ChatSettings,
+  GraphDatabaseClient,
   KnowledgeTask,
   LoadedKnowledgePage,
   RequestRunArtifactPaths,
@@ -100,5 +109,20 @@ describe('package entry storage exports', () => {
 
     expect(task).toBeNull();
     expect(settings).toBeNull();
+  });
+
+  it('re-exports the graph storage APIs and public types', () => {
+    expect(typeof resolveGraphDatabaseUrl).toBe('function');
+    expect(typeof createGraphDatabasePool).toBe('function');
+    expect(typeof buildGraphSchemaSql).toBe('function');
+    expect(typeof saveGraphNode).toBe('function');
+    expect(typeof saveGraphEdge).toBe('function');
+    expect(typeof loadGraphNode).toBe('function');
+    expect(typeof listOutgoingGraphEdges).toBe('function');
+    expect(typeof listIncomingGraphEdges).toBe('function');
+    expect(buildGraphSchemaSql()).toContain('create table if not exists graph_nodes');
+
+    const client: GraphDatabaseClient | null = null;
+    expect(client).toBeNull();
   });
 });

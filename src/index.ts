@@ -52,6 +52,10 @@ export {
 } from './storage/source-manifest-store.js';
 export { listKnowledgeTasks, loadKnowledgeTask, saveKnowledgeTask } from './storage/task-store.js';
 export { loadChatSettings, saveChatSettings } from './storage/chat-settings-store.js';
+export { createGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
+export type { GraphDatabaseClient } from './storage/graph-database.js';
+export { buildGraphSchemaSql } from './storage/graph-schema.js';
+export { listIncomingGraphEdges, listOutgoingGraphEdges, loadGraphNode, saveGraphEdge, saveGraphNode } from './storage/graph-store.js';
 export { loadProjectEnv, loadProjectEnvSync, saveProjectEnv, upsertProjectEnvValue, parseProjectEnv, upsertEnvAssignment } from './storage/project-env-store.js';
 export type { ProjectEnvState } from './storage/project-env-store.js';
 export { readRawDocument } from './flows/ingest/read-raw-document.js';
