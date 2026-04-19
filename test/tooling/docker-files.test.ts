@@ -35,6 +35,7 @@ describe('docker files', () => {
     expect(compose).toContain('POSTGRES_DB: llm_wiki_liiy');
     expect(compose).toContain('POSTGRES_PASSWORD: postgres');
     expect(compose).toContain('GRAPH_DATABASE_URL=postgres://postgres:postgres@postgres:5432/llm_wiki_liiy');
+    expect(compose).toContain('- "5432:5432"');
     expect(compose).toContain('command: ["node", "dist/cli.js", "serve", "/data/project", "3000"]');
     expect(compose).toContain('- "3000:3000"');
     expect(compose).toContain('- ./.llm-wiki-liiy:/data/project');
