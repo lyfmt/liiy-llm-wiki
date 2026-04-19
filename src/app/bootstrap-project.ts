@@ -99,7 +99,8 @@ High-impact actions require review before applying changes:
       2
     )}
 `,
-    [projectPaths.projectEnv]: 'RUNTIME_API_KEY=\n'
+    [projectPaths.projectEnv]:
+      'RUNTIME_API_KEY=\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n'
   } satisfies Record<string, string>;
 
   for (const directory of directories) {

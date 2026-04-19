@@ -5,11 +5,15 @@ services:
     build:
       context: .
     command: ["node", "dist/cli.js", "serve", "/data/project", "3000"]
+    environment:
+      - GRAPH_DATABASE_URL=postgres://postgres:postgres@postgres:5432/llm_wiki_liiy
     ports:
       - "3000:3000"
     volumes:
       - ./.llm-wiki-liiy:/data/project
     restart: unless-stopped
+    depends_on:
+      - postgres
     healthcheck:
       test:
         - CMD
@@ -20,3 +24,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: llm_wiki_liiy
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

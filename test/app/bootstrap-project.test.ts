@@ -88,7 +88,8 @@ describe('bootstrapProject', () => {
       expect(chatSettingsContent).toContain('"model": "gpt-5.4"');
       expect(chatSettingsContent).toContain('"provider": "llm-wiki-liiy"');
       expect(chatSettingsContent).toContain('"api_key_env": "RUNTIME_API_KEY"');
-      expect(envContent).toBe('RUNTIME_API_KEY=\n');
+      expect(envContent).toContain('RUNTIME_API_KEY=');
+      expect(envContent).toContain('GRAPH_DATABASE_URL=');
       await expect(access(path.join(root, '.env'))).resolves.toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
