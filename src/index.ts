@@ -55,6 +55,7 @@ export { loadChatSettings, saveChatSettings } from './storage/chat-settings-stor
 export { createGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
 export type { GraphDatabaseClient } from './storage/graph-database.js';
 export { buildGraphSchemaSql } from './storage/graph-schema.js';
+export { buildGraphProjection } from './storage/graph-projection-store.js';
 export { listIncomingGraphEdges, listOutgoingGraphEdges, loadGraphNode, saveGraphEdge, saveGraphNode } from './storage/graph-store.js';
 export { loadProjectEnv, loadProjectEnvSync, saveProjectEnv, upsertProjectEnvValue, parseProjectEnv, upsertEnvAssignment } from './storage/project-env-store.js';
 export type { ProjectEnvState } from './storage/project-env-store.js';

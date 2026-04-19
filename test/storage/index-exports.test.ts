@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildGraphProjection,
   buildKnowledgePagePath,
   createGraphDatabasePool,
   buildGraphSchemaSql,
@@ -118,6 +119,7 @@ describe('package entry storage exports', () => {
     expect(typeof saveGraphNode).toBe('function');
     expect(typeof saveGraphEdge).toBe('function');
     expect(typeof loadGraphNode).toBe('function');
+    expect(typeof buildGraphProjection).toBe('function');
     expect(typeof listOutgoingGraphEdges).toBe('function');
     expect(typeof listIncomingGraphEdges).toBe('function');
     expect(buildGraphSchemaSql()).toContain('create table if not exists graph_nodes');
