@@ -22,23 +22,7 @@ export interface GraphProjection {
 export interface BuildGraphProjectionInput {
   rootId: string;
   nodes: GraphNode[];
-  edges: Array<GraphEdge | GraphAboutEdge>;
-}
-
-interface GraphAboutEdge {
-  edge_id: string;
-  from_id: string;
-  from_kind: 'assertion';
-  type: 'about';
-  to_id: string;
-  to_kind: 'topic' | 'section' | 'entity';
-  status: GraphEdge['status'];
-  confidence: GraphEdge['confidence'];
-  provenance: GraphEdge['provenance'];
-  review_state: GraphEdge['review_state'];
-  qualifiers: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
+  edges: GraphEdge[];
 }
 
 export function buildGraphProjection(input: BuildGraphProjectionInput): GraphProjection {
@@ -49,10 +33,12 @@ export function buildGraphProjection(input: BuildGraphProjectionInput): GraphPro
     throw new Error(`Graph projection root not found: ${input.rootId}`);
   }
 
-  const assertions = input.edges
-    .filter((edge): edge is GraphAboutEdge => isAboutEdge(edge) && edge.to_id === root.id)
+  const assertions = [...input.edges]
+    .filter((edge) => edge.type === 'about' && edge.to_id === root.id)
+    .sort(compareEdges)
     .map((edge) => nodesById.get(edge.from_id))
     .filter((node): node is GraphNode => node?.kind === 'assertion')
+    .sort(compareNodes)
     .map((assertionNode) => ({
       node: assertionNode,
       evidence: collectAssertionEvidence(assertionNode.id, input.edges, nodesById)
@@ -70,14 +56,14 @@ export function buildGraphProjection(input: BuildGraphProjectionInput): GraphPro
 
 function collectAssertionEvidence(
   assertionId: string,
-  edges: Array<GraphEdge | GraphAboutEdge>,
+  edges: GraphEdge[],
   nodesById: Map<string, GraphNode>
 ): Array<{ node: GraphNode; source: GraphNode | null }> {
-  return edges
+  return [...edges]
     .filter(
-      (edge): edge is GraphEdge =>
-        edge.type === 'supported_by' && edge.from_id === assertionId && edge.from_kind === 'assertion'
+      (edge) => edge.type === 'supported_by' && edge.from_id === assertionId && edge.from_kind === 'assertion'
     )
+    .sort(compareEdges)
     .map((edge) => {
       const evidenceNode = nodesById.get(edge.to_id);
 
@@ -90,18 +76,26 @@ function collectAssertionEvidence(
         source: findEvidenceSource(evidenceNode.id, edges, nodesById)
       };
     })
-    .filter((entry): entry is { node: GraphNode; source: GraphNode | null } => entry !== null);
+    .filter((entry): entry is { node: GraphNode; source: GraphNode | null } => entry !== null)
+    .sort((left, right) => compareNodes(left.node, right.node));
 }
 
 function findEvidenceSource(
   evidenceId: string,
-  edges: Array<GraphEdge | GraphAboutEdge>,
+  edges: GraphEdge[],
   nodesById: Map<string, GraphNode>
 ): GraphNode | null {
-  const sourceId = edges.find(
-    (edge) =>
-      edge.type === 'derived_from' && edge.from_id === evidenceId && edge.from_kind === 'evidence' && edge.to_kind === 'source'
-  )?.to_id;
+  const sourceId = [...edges]
+    .filter(
+      (edge) =>
+        edge.type === 'derived_from' &&
+        edge.from_id === evidenceId &&
+        edge.from_kind === 'evidence' &&
+        edge.to_kind === 'source'
+    )
+    .sort(compareEdges)
+    .find(() => true)
+    ?.to_id;
 
   if (!sourceId) {
     return null;
@@ -109,6 +103,14 @@ function findEvidenceSource(
 
   const sourceNode = nodesById.get(sourceId);
   return sourceNode?.kind === 'source' ? sourceNode : null;
+}
+
+function compareEdges(left: GraphEdge, right: GraphEdge): number {
+  return left.edge_id.localeCompare(right.edge_id);
+}
+
+function compareNodes(left: GraphNode, right: GraphNode): number {
+  return left.id.localeCompare(right.id);
 }
 
 function dedupeEvidence(
@@ -122,13 +124,11 @@ function dedupeEvidence(
 }> {
   const unique = new Map<string, { node: GraphNode; source: GraphNode | null }>();
 
-  for (const entry of entries) {
-    unique.set(entry.node.id, entry);
+  for (const entry of [...entries].sort((left, right) => compareNodes(left.node, right.node))) {
+    if (!unique.has(entry.node.id)) {
+      unique.set(entry.node.id, entry);
+    }
   }
 
   return [...unique.values()];
-}
-
-function isAboutEdge(edge: GraphEdge | GraphAboutEdge): edge is GraphAboutEdge {
-  return edge.type === 'about';
 }

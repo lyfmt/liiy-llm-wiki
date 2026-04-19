@@ -1,6 +1,6 @@
 import type { GraphConfidence, GraphNodeKind, GraphProvenance, GraphReviewState, GraphStatus } from './graph-node.js';
 
-export type GraphEdgeType = 'supported_by' | 'derived_from' | 'belongs_to_taxonomy';
+export type GraphEdgeType = 'about' | 'supported_by' | 'derived_from' | 'belongs_to_taxonomy';
 
 export interface GraphEdge {
   edge_id: string;
@@ -55,6 +55,13 @@ export function createGraphEdge(input: CreateGraphEdgeInput): GraphEdge {
 }
 
 function validateGraphEdgeKinds(input: CreateGraphEdgeInput): void {
+  if (
+    input.type === 'about' &&
+    (input.from_kind !== 'assertion' || !['topic', 'section', 'entity'].includes(input.to_kind))
+  ) {
+    throw new Error('about edges must connect assertion to topic, section, or entity');
+  }
+
   if (input.type === 'supported_by' && (input.from_kind !== 'assertion' || input.to_kind !== 'evidence')) {
     throw new Error('supported_by edges must connect assertion to evidence');
   }

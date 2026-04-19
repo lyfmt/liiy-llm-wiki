@@ -3,6 +3,46 @@ import { describe, expect, it } from 'vitest';
 import { createGraphEdge } from '../../src/domain/graph-edge.js';
 
 describe('createGraphEdge', () => {
+  it('creates a valid assertion to topic about edge', () => {
+    const edge = createGraphEdge({
+      edge_id: 'edge:000',
+      from_id: 'assertion:adapter-definition',
+      from_kind: 'assertion',
+      type: 'about',
+      to_id: 'topic:design-patterns',
+      to_kind: 'topic',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      qualifiers: {},
+      created_at: '2026-04-19T00:00:00.000Z',
+      updated_at: '2026-04-19T00:00:00.000Z'
+    });
+
+    expect(edge.type).toBe('about');
+  });
+
+  it('rejects invalid about edge kinds', () => {
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:000b',
+        from_id: 'topic:design-patterns',
+        from_kind: 'topic',
+        type: 'about',
+        to_id: 'source:gof-book',
+        to_kind: 'source',
+        status: 'draft',
+        confidence: 'weak',
+        provenance: 'agent-synthesized',
+        review_state: 'unreviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    ).toThrow('about edges must connect assertion to topic, section, or entity');
+  });
+
   it('creates a valid assertion to evidence edge', () => {
     const edge = createGraphEdge({
       edge_id: 'edge:001',
