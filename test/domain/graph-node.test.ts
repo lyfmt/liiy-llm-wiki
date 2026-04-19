@@ -9,7 +9,7 @@ describe('createGraphNode', () => {
       kind: 'topic',
       title: 'Design Patterns',
       summary: 'Durable overview of software design patterns.',
-      aliases: ['GoF Patterns'],
+      aliases: [' GoF Patterns ', '', 'GoF Patterns', 'Patterns Catalog'],
       status: 'active',
       confidence: 'asserted',
       provenance: 'human-edited',
@@ -21,7 +21,8 @@ describe('createGraphNode', () => {
     });
 
     expect(node.kind).toBe('topic');
-    expect(node.aliases).toEqual(['GoF Patterns']);
+    expect(node.aliases).toEqual(['GoF Patterns', 'Patterns Catalog']);
+    expect(node.retrieval_text).toBe('Design Patterns GoF Patterns durable overview');
   });
 
   it('rejects evidence nodes without locator and excerpt', () => {
