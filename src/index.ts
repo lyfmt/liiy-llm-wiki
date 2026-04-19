@@ -10,6 +10,17 @@ export { createSourceManifest } from './domain/source-manifest.js';
 export type { SourceManifest, SourceManifestStatus } from './domain/source-manifest.js';
 export { createKnowledgePage } from './domain/knowledge-page.js';
 export type { KnowledgePage, KnowledgePageKind } from './domain/knowledge-page.js';
+export { createGraphNode } from './domain/graph-node.js';
+export type {
+  GraphConfidence,
+  GraphNode,
+  GraphNodeKind,
+  GraphProvenance,
+  GraphReviewState,
+  GraphStatus
+} from './domain/graph-node.js';
+export { createGraphEdge } from './domain/graph-edge.js';
+export type { GraphEdge, GraphEdgeType } from './domain/graph-edge.js';
 export { createRequestRun } from './domain/request-run.js';
 export type { RequestRun, RequestRunStatus } from './domain/request-run.js';
 export { createChangeSet } from './domain/change-set.js';
