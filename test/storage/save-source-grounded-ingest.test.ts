@@ -374,6 +374,41 @@ describe('saveSourceGroundedIngest', () => {
     expect(client.nodeUpserts).toHaveLength(baselineNodeUpserts);
     expect(client.edgeUpserts).toHaveLength(baselineEdgeUpserts);
   });
+
+  it('raises a business conflict when another ingest inserts a conflicting topic after the initial existence check', async () => {
+    const ingest = createMinimalIngest();
+    const client = createFakeGraphClient({
+      concurrentNodeRows: [
+        createGraphNode({
+          id: ingest.topic.id,
+          kind: 'topic',
+          title: 'Conflicting Topic Title',
+          summary: ingest.topic.summary,
+          aliases: [],
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'agent-synthesized',
+          review_state: 'reviewed',
+          retrieval_text: 'Conflicting Topic Title\nPattern overview.',
+          attributes: { slug: ingest.topic.slug },
+          created_at: '2026-04-19T00:00:00.000Z',
+          updated_at: '2026-04-19T00:00:00.000Z'
+        })
+      ]
+    });
+
+    await expect(saveSourceGroundedIngest(client, ingest, '2026-04-20T00:00:00.000Z')).rejects.toMatchObject({
+      code: SOURCE_GROUNDED_INGEST_CONFLICT,
+      entityKind: 'topic',
+      entityId: ingest.topic.id
+    });
+    expect(client.nodeUpserts).toEqual([]);
+    expect(client.edgeUpserts).toEqual([]);
+    await expect(loadGraphNode(client, `source:${ingest.sourceId}`)).resolves.toBeNull();
+    await expect(loadGraphNode(client, ingest.topic.id)).resolves.toMatchObject({
+      title: 'Conflicting Topic Title'
+    });
+  });
 });
 
 async function seedNode(client: GraphDatabaseClient, node: ReturnType<typeof createGraphNode>): Promise<void> {
@@ -410,43 +445,111 @@ function createMinimalIngest() {
   });
 }
 
-function createFakeGraphClient(): GraphDatabaseClient & {
+function createFakeGraphClient(input: {
+  concurrentNodeRows?: Array<ReturnType<typeof createGraphNode>>;
+} = {}): GraphDatabaseClient & {
   nodeUpserts: string[];
   edgeUpserts: string[];
 } {
-  const nodeRows = new Map<string, Record<string, unknown>>();
-  const edgeRows = new Map<string, Record<string, unknown>>();
+  let nodeRows = new Map<string, Record<string, unknown>>();
+  let edgeRows = new Map<string, Record<string, unknown>>();
+  let activeNodeRows = nodeRows;
+  let activeEdgeRows = edgeRows;
+  let insideTransaction = false;
   const nodeUpserts: string[] = [];
   const edgeUpserts: string[] = [];
+  const concurrentNodeRows = new Map(
+    (input.concurrentNodeRows ?? []).map((node) => [node.id, toStoredNodeRow(node)])
+  );
 
-  return {
+  const client: GraphDatabaseClient & {
+    nodeUpserts: string[];
+    edgeUpserts: string[];
+  } = {
     nodeUpserts,
     edgeUpserts,
+    async transaction<T>(work: (transactionClient: GraphDatabaseClient) => Promise<T>) {
+      const transactionNodeRows = cloneRowMap(nodeRows);
+      const transactionEdgeRows = cloneRowMap(edgeRows);
+      const baselineNodeUpserts = nodeUpserts.length;
+      const baselineEdgeUpserts = edgeUpserts.length;
+      const previousInsideTransaction = insideTransaction;
+
+      activeNodeRows = transactionNodeRows;
+      activeEdgeRows = transactionEdgeRows;
+      insideTransaction = true;
+
+      try {
+        const result = await work(client);
+        nodeRows = transactionNodeRows;
+        edgeRows = transactionEdgeRows;
+        return result;
+      } catch (error) {
+        nodeUpserts.splice(baselineNodeUpserts);
+        edgeUpserts.splice(baselineEdgeUpserts);
+        throw error;
+      } finally {
+        activeNodeRows = nodeRows;
+        activeEdgeRows = edgeRows;
+        insideTransaction = previousInsideTransaction;
+      }
+    },
+    async end() {
+      // no-op in tests
+    },
     async query(sql: string, params?: unknown[]) {
       if (sql.includes('insert into graph_nodes')) {
         const row = toNodeRow(params ?? []);
-        const existing = nodeRows.get(String(row.id));
-        nodeRows.set(String(row.id), existing ? { ...row, created_at: existing.created_at } : row);
+        injectConcurrentNode(String(row.id));
+        const existing = activeNodeRows.get(String(row.id));
+
+        if (sql.includes('on conflict (id) do nothing')) {
+          if (existing) {
+            return { rows: [] };
+          }
+
+          activeNodeRows.set(String(row.id), row);
+          nodeUpserts.push(String(row.id));
+          return { rows: [{ id: row.id }] };
+        }
+
+        activeNodeRows.set(String(row.id), existing ? { ...row, created_at: existing.created_at } : row);
         nodeUpserts.push(String(row.id));
         return { rows: [] };
       }
 
       if (sql.includes('insert into graph_edges')) {
         const row = toEdgeRow(params ?? []);
-        const existing = edgeRows.get(String(row.edge_id));
-        edgeRows.set(String(row.edge_id), existing ? { ...row, created_at: existing.created_at } : row);
+        const existing = activeEdgeRows.get(String(row.edge_id));
+
+        if (sql.includes('on conflict (edge_id) do nothing')) {
+          if (existing) {
+            return { rows: [] };
+          }
+
+          activeEdgeRows.set(String(row.edge_id), row);
+          edgeUpserts.push(String(row.edge_id));
+          return { rows: [{ edge_id: row.edge_id }] };
+        }
+
+        activeEdgeRows.set(String(row.edge_id), existing ? { ...row, created_at: existing.created_at } : row);
         edgeUpserts.push(String(row.edge_id));
         return { rows: [] };
       }
 
       if (sql.includes('from graph_nodes') && sql.includes('where id = $1')) {
         const id = String(params?.[0] ?? '');
-        return { rows: nodeRows.has(id) ? [cloneRow(nodeRows.get(id)!)] : [] };
+        return { rows: activeNodeRows.has(id) ? [cloneRow(activeNodeRows.get(id)!)] : [] };
+      }
+
+      if (sql.includes('from graph_edges') && sql.includes('where edge_id = $1')) {
+        const edgeId = String(params?.[0] ?? '');
+        return { rows: activeEdgeRows.has(edgeId) ? [cloneRow(activeEdgeRows.get(edgeId)!)] : [] };
       }
 
       if (sql.includes('from graph_edges') && sql.includes('where from_id = $1')) {
         const fromId = String(params?.[0] ?? '');
-        const rows = [...edgeRows.values()]
+        const rows = [...activeEdgeRows.values()]
           .filter((row) => row.from_id === fromId)
           .sort((left, right) => String(left.edge_id).localeCompare(String(right.edge_id)))
           .map(cloneRow);
@@ -455,7 +558,7 @@ function createFakeGraphClient(): GraphDatabaseClient & {
 
       if (sql.includes('from graph_edges') && sql.includes('where to_id = $1')) {
         const toId = String(params?.[0] ?? '');
-        const rows = [...edgeRows.values()]
+        const rows = [...activeEdgeRows.values()]
           .filter((row) => row.to_id === toId)
           .sort((left, right) => String(left.edge_id).localeCompare(String(right.edge_id)))
           .map(cloneRow);
@@ -465,6 +568,23 @@ function createFakeGraphClient(): GraphDatabaseClient & {
       throw new Error(`Unexpected query: ${sql}`);
     }
   };
+
+  return client;
+
+  function injectConcurrentNode(id: string) {
+    const concurrentRow = concurrentNodeRows.get(id);
+
+    if (!concurrentRow) {
+      return;
+    }
+
+    concurrentNodeRows.delete(id);
+    nodeRows.set(id, cloneRow(concurrentRow));
+
+    if (insideTransaction) {
+      activeNodeRows.set(id, cloneRow(concurrentRow));
+    }
+  }
 }
 
 function toNodeRow(params: unknown[]): Record<string, unknown> {
@@ -506,4 +626,26 @@ function toEdgeRow(params: unknown[]): Record<string, unknown> {
 
 function cloneRow(row: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(row);
+}
+
+function cloneRowMap(rows: Map<string, Record<string, unknown>>): Map<string, Record<string, unknown>> {
+  return new Map([...rows.entries()].map(([key, row]) => [key, cloneRow(row)]));
+}
+
+function toStoredNodeRow(node: ReturnType<typeof createGraphNode>): Record<string, unknown> {
+  return {
+    id: node.id,
+    kind: node.kind,
+    title: node.title,
+    summary: node.summary,
+    aliases: node.aliases,
+    status: node.status,
+    confidence: node.confidence,
+    provenance: node.provenance,
+    review_state: node.review_state,
+    retrieval_text: node.retrieval_text,
+    attributes: structuredClone(node.attributes),
+    created_at: node.created_at,
+    updated_at: node.updated_at
+  };
 }

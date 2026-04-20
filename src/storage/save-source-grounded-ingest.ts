@@ -5,7 +5,7 @@ import { createGraphNode, type GraphNode } from '../domain/graph-node.js';
 import type { SourceGroundedIngest } from '../domain/source-grounded-ingest.js';
 
 import type { GraphDatabaseClient } from './graph-database.js';
-import { listOutgoingGraphEdges, loadGraphNode, saveGraphEdge, saveGraphNode } from './graph-store.js';
+import { insertGraphEdgeIfAbsent, insertGraphNodeIfAbsent, loadGraphEdge, loadGraphNode } from './graph-store.js';
 
 export const SOURCE_GROUNDED_INGEST_CONFLICT = 'SOURCE_GROUNDED_INGEST_CONFLICT';
 
@@ -29,73 +29,65 @@ export async function saveSourceGroundedIngest(
   ingest: SourceGroundedIngest,
   savedAt = new Date().toISOString()
 ): Promise<void> {
-  const sourceNode = buildSourceNode(ingest, savedAt);
-  const topicNode = buildTopicNode(ingest, savedAt);
-  const evidenceNodes = dedupeNodesById(
-    ingest.evidence.map((evidence) => buildEvidenceNode(evidence, savedAt)),
-    'evidence'
-  );
-  const sectionNodes = dedupeNodesById(
-    ingest.sections.map((section) => buildSectionNode(section, savedAt)),
-    'section'
-  );
+  await runInTransaction(client, async (transactionClient) => {
+    const sourceNode = buildSourceNode(ingest, savedAt);
+    const topicNode = buildTopicNode(ingest, savedAt);
+    const evidenceNodes = dedupeNodesById(
+      ingest.evidence.map((evidence) => buildEvidenceNode(evidence, savedAt)),
+      'evidence'
+    );
+    const sectionNodes = dedupeNodesById(
+      ingest.sections.map((section) => buildSectionNode(section, savedAt)),
+      'section'
+    );
 
-  const nodePlans = [
-    { entityKind: 'source' as const, node: sourceNode },
-    { entityKind: 'topic' as const, node: topicNode },
-    ...evidenceNodes.map((node) => ({ entityKind: 'evidence' as const, node })),
-    ...sectionNodes.map((node) => ({ entityKind: 'section' as const, node }))
-  ];
-  const nodesToSave: GraphNode[] = [];
+    const nodePlans = [
+      { entityKind: 'source' as const, node: sourceNode },
+      { entityKind: 'topic' as const, node: topicNode },
+      ...evidenceNodes.map((node) => ({ entityKind: 'evidence' as const, node })),
+      ...sectionNodes.map((node) => ({ entityKind: 'section' as const, node }))
+    ];
 
-  for (const plan of nodePlans) {
-    const existingNode = await loadGraphNode(client, plan.node.id);
+    for (const plan of nodePlans) {
+      const inserted = await insertGraphNodeIfAbsent(transactionClient, plan.node);
 
-    if (!existingNode) {
-      nodesToSave.push(plan.node);
-      continue;
+      if (inserted) {
+        continue;
+      }
+
+      const existingNode = await loadGraphNode(transactionClient, plan.node.id);
+
+      if (!existingNode || !nodesHaveSameContent(existingNode, plan.node)) {
+        throw new SourceGroundedIngestConflictError(
+          plan.entityKind,
+          plan.node.id,
+          `Conflicting ${plan.entityKind} node already exists: ${plan.node.id}`
+        );
+      }
     }
 
-    if (!nodesHaveSameContent(existingNode, plan.node)) {
-      throw new SourceGroundedIngestConflictError(
-        plan.entityKind,
-        plan.node.id,
-        `Conflicting ${plan.entityKind} node already exists: ${plan.node.id}`
-      );
+    const desiredEdges = [
+      ...sectionNodes.map((sectionNode) => buildPartOfEdge(sectionNode.id, ingest.topic.id, savedAt)),
+      ...sectionNodes.flatMap((sectionNode) =>
+        getGroundedEvidenceIds(sectionNode).map((evidenceId) => buildGroundedByEdge(sectionNode.id, evidenceId, savedAt))
+      ),
+      ...evidenceNodes.map((evidenceNode) => buildDerivedFromEdge(evidenceNode.id, sourceNode.id, savedAt))
+    ];
+
+    for (const edge of desiredEdges) {
+      const inserted = await insertGraphEdgeIfAbsent(transactionClient, edge);
+
+      if (inserted) {
+        continue;
+      }
+
+      const existingEdge = await loadGraphEdge(transactionClient, edge.edge_id);
+
+      if (!existingEdge || !edgesHaveSameContent(existingEdge, edge)) {
+        throw new SourceGroundedIngestConflictError('edge', edge.edge_id, `Conflicting edge already exists: ${edge.edge_id}`);
+      }
     }
-  }
-
-  const outgoingEdgeCache = new Map<string, Map<string, GraphEdge>>();
-  const desiredEdges = [
-    ...sectionNodes.map((sectionNode) => buildPartOfEdge(sectionNode.id, ingest.topic.id, savedAt)),
-    ...sectionNodes.flatMap((sectionNode) =>
-      getGroundedEvidenceIds(sectionNode).map((evidenceId) => buildGroundedByEdge(sectionNode.id, evidenceId, savedAt))
-    ),
-    ...evidenceNodes.map((evidenceNode) => buildDerivedFromEdge(evidenceNode.id, sourceNode.id, savedAt))
-  ];
-  const edgesToSave: GraphEdge[] = [];
-
-  for (const edge of desiredEdges) {
-    const outgoingEdges = await getOutgoingEdgesById(client, outgoingEdgeCache, edge.from_id);
-    const existingEdge = outgoingEdges.get(edge.edge_id);
-
-    if (!existingEdge) {
-      edgesToSave.push(edge);
-      continue;
-    }
-
-    if (!edgesHaveSameContent(existingEdge, edge)) {
-      throw new SourceGroundedIngestConflictError('edge', edge.edge_id, `Conflicting edge already exists: ${edge.edge_id}`);
-    }
-  }
-
-  for (const node of nodesToSave) {
-    await saveGraphNode(client, node);
-  }
-
-  for (const edge of edgesToSave) {
-    await saveGraphEdge(client, edge);
-  }
+  });
 }
 
 function buildTopicNode(ingest: SourceGroundedIngest, savedAt: string): GraphNode {
@@ -268,22 +260,6 @@ function getGroundedEvidenceIds(sectionNode: GraphNode): string[] {
   return Array.isArray(groundedEvidenceIds) ? groundedEvidenceIds.map((value) => String(value)) : [];
 }
 
-async function getOutgoingEdgesById(
-  client: GraphDatabaseClient,
-  cache: Map<string, Map<string, GraphEdge>>,
-  fromId: string
-): Promise<Map<string, GraphEdge>> {
-  const cached = cache.get(fromId);
-
-  if (cached) {
-    return cached;
-  }
-
-  const edges = new Map((await listOutgoingGraphEdges(client, fromId)).map((edge) => [edge.edge_id, edge]));
-  cache.set(fromId, edges);
-  return edges;
-}
-
 function nodesHaveSameContent(existingNode: GraphNode, desiredNode: GraphNode): boolean {
   return stableStringify(toComparableNode(existingNode)) === stableStringify(toComparableNode(desiredNode));
 }
@@ -371,4 +347,15 @@ function sortValue(value: unknown): unknown {
   }
 
   return value;
+}
+
+async function runInTransaction<T>(
+  client: GraphDatabaseClient,
+  work: (transactionClient: GraphDatabaseClient) => Promise<T>
+): Promise<T> {
+  if (typeof client.transaction === 'function') {
+    return client.transaction(work);
+  }
+
+  return work(client);
 }

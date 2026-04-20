@@ -2,13 +2,11 @@ import { createKnowledgePage } from '../domain/knowledge-page.js';
 import type { GraphNode } from '../domain/graph-node.js';
 
 import type { GraphDatabaseClient } from './graph-database.js';
-import { createGraphDatabasePool, resolveGraphDatabaseUrl } from './graph-database.js';
+import { getSharedGraphDatabasePool, resolveGraphDatabaseUrl } from './graph-database.js';
 import { buildGraphProjection, type GraphProjection } from './graph-projection-store.js';
 import { loadKnowledgePage, type LoadedKnowledgePage } from './knowledge-page-store.js';
 import { loadTopicGraphProjectionInput } from './load-topic-graph-projection.js';
 import { loadProjectEnv } from './project-env-store.js';
-
-const graphClientsByDatabaseUrl = new Map<string, GraphDatabaseClient>();
 
 export type LoadedTopicGraphPage = LoadedKnowledgePage & { projection: GraphProjection };
 
@@ -215,14 +213,5 @@ function isEnoentError(error: unknown): error is NodeJS.ErrnoException {
 async function getGraphClient(root: string): Promise<GraphDatabaseClient> {
   const projectEnv = await loadProjectEnv(root);
   const databaseUrl = resolveGraphDatabaseUrl(projectEnv.contents);
-  const cachedClient = graphClientsByDatabaseUrl.get(databaseUrl);
-
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = createGraphDatabasePool(databaseUrl);
-  graphClientsByDatabaseUrl.set(databaseUrl, client);
-
-  return client;
+  return getSharedGraphDatabasePool(databaseUrl);
 }

@@ -5,6 +5,7 @@ import {
   buildKnowledgePagePath,
   createGraphDatabasePool,
   buildGraphSchemaSql,
+  disposeGraphDatabasePools,
   buildRequestRunArtifactPaths,
   buildSourceManifestPath,
   findAcceptedSourceManifestByPath,
@@ -27,6 +28,7 @@ import {
   loadSourceManifest,
   parseProjectEnv,
   resolveGraphDatabaseUrl,
+  getSharedGraphDatabasePool,
   saveGraphEdge,
   saveGraphNode,
   saveChatSettings,
@@ -115,6 +117,8 @@ describe('package entry storage exports', () => {
   it('re-exports the graph storage APIs and public types', () => {
     expect(typeof resolveGraphDatabaseUrl).toBe('function');
     expect(typeof createGraphDatabasePool).toBe('function');
+    expect(typeof getSharedGraphDatabasePool).toBe('function');
+    expect(typeof disposeGraphDatabasePools).toBe('function');
     expect(typeof buildGraphSchemaSql).toBe('function');
     expect(typeof saveGraphNode).toBe('function');
     expect(typeof saveGraphEdge).toBe('function');

@@ -3,7 +3,7 @@ import { createRequestRun } from '../../domain/request-run.js';
 import { createSourceGroundedIngest, type SourceGroundedIngest } from '../../domain/source-grounded-ingest.js';
 import type { SourceManifest } from '../../domain/source-manifest.js';
 import type { ReviewGateDecision } from '../../policies/review-gate.js';
-import { createGraphDatabasePool, resolveGraphDatabaseUrl } from '../../storage/graph-database.js';
+import { getSharedGraphDatabasePool, resolveGraphDatabaseUrl } from '../../storage/graph-database.js';
 import { loadProjectEnv } from '../../storage/project-env-store.js';
 import { saveRequestRunState, type RequestRunState } from '../../storage/request-run-state-store.js';
 import {
@@ -289,7 +289,7 @@ async function getGraphClient(root: string) {
   const projectEnv = await loadProjectEnv(root);
   const databaseUrl = resolveGraphDatabaseUrl(projectEnv.contents);
 
-  return createGraphDatabasePool(databaseUrl);
+  return getSharedGraphDatabasePool(databaseUrl);
 }
 
 function renderDraftMarkdown(sourcePath: string, ingest: SourceGroundedIngest, touchedFiles: string[]): string {

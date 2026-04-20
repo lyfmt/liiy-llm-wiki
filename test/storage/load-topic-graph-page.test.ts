@@ -18,7 +18,7 @@ vi.mock('../../src/storage/project-env-store.js', () => ({
 
 vi.mock('../../src/storage/graph-database.js', () => ({
   resolveGraphDatabaseUrl: vi.fn(() => 'postgres://graph.example.invalid/llm_wiki_liiy'),
-  createGraphDatabasePool: vi.fn(() => ({
+  getSharedGraphDatabasePool: vi.fn(() => ({
     query: vi.fn()
   }))
 }));

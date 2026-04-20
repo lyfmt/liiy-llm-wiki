@@ -35,21 +35,7 @@ on conflict (id) do update set
   attributes = excluded.attributes,
   updated_at = excluded.updated_at
 `.trim(),
-    [
-      node.id,
-      node.kind,
-      node.title,
-      node.summary,
-      JSON.stringify(node.aliases),
-      node.status,
-      node.confidence,
-      node.provenance,
-      node.review_state,
-      node.retrieval_text,
-      JSON.stringify(node.attributes),
-      node.created_at,
-      node.updated_at
-    ]
+    toGraphNodeParams(node)
   );
 }
 
@@ -87,23 +73,65 @@ on conflict (edge_id) do update set
   qualifiers = excluded.qualifiers,
   updated_at = excluded.updated_at
 `.trim(),
-    [
-      edge.edge_id,
-      edge.from_id,
-      edge.from_kind,
-      edge.type,
-      edge.to_id,
-      edge.to_kind,
-      edge.status,
-      edge.confidence,
-      edge.provenance,
-      edge.review_state,
-      0,
-      JSON.stringify(edge.qualifiers),
-      edge.created_at,
-      edge.updated_at
-    ]
+    toGraphEdgeParams(edge)
   );
+}
+
+export async function insertGraphNodeIfAbsent(client: GraphDatabaseClient, node: GraphNode): Promise<boolean> {
+  const result = await client.query(
+    `
+insert into graph_nodes (
+  id,
+  kind,
+  title,
+  summary,
+  aliases,
+  status,
+  confidence,
+  provenance,
+  review_state,
+  retrieval_text,
+  attributes,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+on conflict (id) do nothing
+returning id
+`.trim(),
+    toGraphNodeParams(node)
+  );
+
+  return result.rows.length > 0;
+}
+
+export async function insertGraphEdgeIfAbsent(client: GraphDatabaseClient, edge: GraphEdge): Promise<boolean> {
+  const result = await client.query(
+    `
+insert into graph_edges (
+  edge_id,
+  from_id,
+  from_kind,
+  type,
+  to_id,
+  to_kind,
+  status,
+  confidence,
+  provenance,
+  review_state,
+  sort_order,
+  qualifiers,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
+on conflict (edge_id) do nothing
+returning edge_id
+`.trim(),
+    toGraphEdgeParams(edge)
+  );
+
+  return result.rows.length > 0;
 }
 
 export async function loadGraphNode(client: GraphDatabaseClient, id: string): Promise<GraphNode | null> {
@@ -132,6 +160,34 @@ limit 1
 
   const row = result.rows[0];
   return row ? mapGraphNodeRow(row) : null;
+}
+
+export async function loadGraphEdge(client: GraphDatabaseClient, edgeId: string): Promise<GraphEdge | null> {
+  const result = await client.query(
+    `
+select
+  edge_id,
+  from_id,
+  from_kind,
+  type,
+  to_id,
+  to_kind,
+  status,
+  confidence,
+  provenance,
+  review_state,
+  qualifiers,
+  created_at,
+  updated_at
+from graph_edges
+where edge_id = $1
+limit 1
+`.trim(),
+    [edgeId]
+  );
+
+  const row = result.rows[0];
+  return row ? mapGraphEdgeRow(row) : null;
 }
 
 export async function listOutgoingGraphEdges(client: GraphDatabaseClient, fromId: string): Promise<GraphEdge[]> {
@@ -238,4 +294,41 @@ function toRecord(value: unknown): Record<string, unknown> {
   }
 
   return {};
+}
+
+function toGraphNodeParams(node: GraphNode): unknown[] {
+  return [
+    node.id,
+    node.kind,
+    node.title,
+    node.summary,
+    JSON.stringify(node.aliases),
+    node.status,
+    node.confidence,
+    node.provenance,
+    node.review_state,
+    node.retrieval_text,
+    JSON.stringify(node.attributes),
+    node.created_at,
+    node.updated_at
+  ];
+}
+
+function toGraphEdgeParams(edge: GraphEdge): unknown[] {
+  return [
+    edge.edge_id,
+    edge.from_id,
+    edge.from_kind,
+    edge.type,
+    edge.to_id,
+    edge.to_kind,
+    edge.status,
+    edge.confidence,
+    edge.provenance,
+    edge.review_state,
+    0,
+    JSON.stringify(edge.qualifiers),
+    edge.created_at,
+    edge.updated_at
+  ];
 }

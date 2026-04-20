@@ -63,7 +63,7 @@ export {
 } from './storage/source-manifest-store.js';
 export { listKnowledgeTasks, loadKnowledgeTask, saveKnowledgeTask } from './storage/task-store.js';
 export { loadChatSettings, saveChatSettings } from './storage/chat-settings-store.js';
-export { createGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
+export { createGraphDatabasePool, disposeGraphDatabasePools, getSharedGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
 export type { GraphDatabaseClient } from './storage/graph-database.js';
 export { buildGraphSchemaSql } from './storage/graph-schema.js';
 export { buildGraphProjection } from './storage/graph-projection-store.js';

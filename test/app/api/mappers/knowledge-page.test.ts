@@ -29,12 +29,16 @@ vi.mock('../../../../src/storage/project-env-store.js', () => ({
   }))
 }));
 
-vi.mock('../../../../src/storage/graph-database.js', () => ({
-  resolveGraphDatabaseUrl: vi.fn(() => 'postgres://graph.example.invalid/llm_wiki_liiy'),
-  createGraphDatabasePool: vi.fn(() => ({
+vi.mock('../../../../src/storage/graph-database.js', () => {
+  const sharedClient = {
     query: vi.fn()
-  }))
-}));
+  };
+
+  return {
+    resolveGraphDatabaseUrl: vi.fn(() => 'postgres://graph.example.invalid/llm_wiki_liiy'),
+    getSharedGraphDatabasePool: vi.fn(() => sharedClient)
+  };
+});
 
 vi.mock('../../../../src/storage/load-topic-graph-projection.js', () => ({
   loadTopicGraphProjectionInput: vi.fn(async () => null)
@@ -203,7 +207,7 @@ describe('buildKnowledgePageResponseDto', () => {
       expect(response.navigation.entities).toEqual([]);
       expect(response.navigation.assertions).toEqual([]);
       expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).not.toHaveBeenCalled();
-      expect(vi.mocked(graphDatabase.createGraphDatabasePool)).not.toHaveBeenCalled();
+      expect(vi.mocked(graphDatabase.getSharedGraphDatabasePool)).not.toHaveBeenCalled();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -398,8 +402,11 @@ describe('buildKnowledgePageResponseDto', () => {
       await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
       await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
 
-      expect(vi.mocked(graphDatabase.createGraphDatabasePool)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(graphDatabase.getSharedGraphDatabasePool)).toHaveBeenCalledTimes(2);
       expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput).mock.calls[0]?.[0]).toBe(
+        vi.mocked(graphLoader.loadTopicGraphProjectionInput).mock.calls[1]?.[0]
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bootstrapProject } from '../../../src/app/bootstrap-project.js';
 import { createSourceManifest } from '../../../src/domain/source-manifest.js';
 import { runSourceGroundedIngestFlow } from '../../../src/flows/ingest/run-source-grounded-ingest-flow.js';
+import { getSharedGraphDatabasePool } from '../../../src/storage/graph-database.js';
 import { loadRequestRunState } from '../../../src/storage/request-run-state-store.js';
 import { saveSourceManifest } from '../../../src/storage/source-manifest-store.js';
 import { SourceGroundedIngestConflictError, saveSourceGroundedIngest } from '../../../src/storage/save-source-grounded-ingest.js';
@@ -40,7 +41,7 @@ vi.mock('../../../src/storage/graph-database.js', async () => {
 
   return {
     ...actual,
-    createGraphDatabasePool: vi.fn(() => ({
+    getSharedGraphDatabasePool: vi.fn(() => ({
       query: vi.fn(async () => ({ rows: [] }))
     }))
   };
@@ -105,6 +106,7 @@ describe('runSourceGroundedIngestFlow', () => {
       expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain('src-001');
 
       expect(vi.mocked(saveSourceGroundedIngest)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(getSharedGraphDatabasePool)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(saveSourceGroundedIngest).mock.calls[0]?.[1]).toMatchObject({
         sourceId: 'src-001',
         sourcePath: 'raw/accepted/design.md',
