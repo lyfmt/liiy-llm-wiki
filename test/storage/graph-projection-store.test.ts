@@ -6,10 +6,46 @@ import { buildGraphProjection } from '../../src/storage/graph-projection-store.j
 
 describe('buildGraphProjection', () => {
   it('builds a topic projection with assertions and evidence summaries', () => {
+    const taxonomy = createGraphNode({
+      id: 'taxonomy:software-architecture',
+      kind: 'taxonomy',
+      title: 'Software Architecture',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {},
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
     const topic = createGraphNode({
       id: 'topic:graph-projection',
       kind: 'topic',
       title: 'Graph Projection',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {},
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const section = createGraphNode({
+      id: 'section:projection-overview',
+      kind: 'section',
+      title: 'Projection Overview',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {},
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const entity = createGraphNode({
+      id: 'entity:graph-reader',
+      kind: 'entity',
+      title: 'Graph Reader',
       status: 'active',
       confidence: 'asserted',
       provenance: 'human-edited',
@@ -60,8 +96,50 @@ describe('buildGraphProjection', () => {
 
     const projection = buildGraphProjection({
       rootId: topic.id,
-      nodes: [topic, assertion, evidence, source],
+      nodes: [taxonomy, topic, section, entity, assertion, evidence, source],
       edges: [
+        createGraphEdge({
+          edge_id: 'edge:belongs-to-taxonomy:1',
+          from_id: topic.id,
+          from_kind: 'topic',
+          type: 'belongs_to_taxonomy',
+          to_id: taxonomy.id,
+          to_kind: 'taxonomy',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'human-edited',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:mentions:1',
+          from_id: topic.id,
+          from_kind: 'topic',
+          type: 'mentions',
+          to_id: entity.id,
+          to_kind: 'entity',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'human-edited',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:part-of:1',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'part_of',
+          to_id: topic.id,
+          to_kind: 'topic',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'human-edited',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
         createGraphEdge({
           edge_id: 'edge:about:1',
           from_id: assertion.id,
@@ -108,6 +186,9 @@ describe('buildGraphProjection', () => {
     });
 
     expect(projection.root.id).toBe(topic.id);
+    expect(projection.taxonomy.map((node) => node.id)).toEqual([taxonomy.id]);
+    expect(projection.sections.map((node) => node.id)).toEqual([section.id]);
+    expect(projection.entities.map((node) => node.id)).toEqual([entity.id]);
     expect(projection.assertions).toHaveLength(1);
     expect(projection.assertions[0]?.node.id).toBe(assertion.id);
     expect(projection.assertions[0]?.evidence).toHaveLength(1);

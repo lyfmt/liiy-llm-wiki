@@ -3,6 +3,66 @@ import { describe, expect, it } from 'vitest';
 import { createGraphEdge } from '../../src/domain/graph-edge.js';
 
 describe('createGraphEdge', () => {
+  it('creates a valid taxonomy to taxonomy part_of edge', () => {
+    const edge = createGraphEdge({
+      edge_id: 'edge:part-of:taxonomy',
+      from_id: 'taxonomy:software',
+      from_kind: 'taxonomy',
+      type: 'part_of',
+      to_id: 'taxonomy:technology',
+      to_kind: 'taxonomy',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      qualifiers: {},
+      created_at: '2026-04-19T00:00:00.000Z',
+      updated_at: '2026-04-19T00:00:00.000Z'
+    });
+
+    expect(edge.type).toBe('part_of');
+  });
+
+  it('creates a valid section to topic part_of edge', () => {
+    const edge = createGraphEdge({
+      edge_id: 'edge:part-of:section',
+      from_id: 'section:adapter-pattern',
+      from_kind: 'section',
+      type: 'part_of',
+      to_id: 'topic:design-patterns',
+      to_kind: 'topic',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      qualifiers: {},
+      created_at: '2026-04-19T00:00:00.000Z',
+      updated_at: '2026-04-19T00:00:00.000Z'
+    });
+
+    expect(edge.type).toBe('part_of');
+  });
+
+  it('rejects invalid part_of edge kinds', () => {
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:part-of:invalid',
+        from_id: 'topic:design-patterns',
+        from_kind: 'topic',
+        type: 'part_of',
+        to_id: 'topic:software',
+        to_kind: 'topic',
+        status: 'draft',
+        confidence: 'weak',
+        provenance: 'agent-synthesized',
+        review_state: 'unreviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    ).toThrow('part_of edges must connect taxonomy to taxonomy or section to topic/section');
+  });
+
   it('creates a valid assertion to topic about edge', () => {
     const edge = createGraphEdge({
       edge_id: 'edge:000',
@@ -121,6 +181,46 @@ describe('createGraphEdge', () => {
         updated_at: '2026-04-19T00:00:00.000Z'
       })
     ).toThrow('derived_from edges must connect evidence to source');
+  });
+
+  it('creates a valid topic to entity mentions edge', () => {
+    const edge = createGraphEdge({
+      edge_id: 'edge:mentions:valid',
+      from_id: 'topic:design-patterns',
+      from_kind: 'topic',
+      type: 'mentions',
+      to_id: 'entity:gang-of-four',
+      to_kind: 'entity',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      qualifiers: {},
+      created_at: '2026-04-19T00:00:00.000Z',
+      updated_at: '2026-04-19T00:00:00.000Z'
+    });
+
+    expect(edge.type).toBe('mentions');
+  });
+
+  it('rejects invalid mentions edge kinds', () => {
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:mentions:invalid',
+        from_id: 'topic:design-patterns',
+        from_kind: 'topic',
+        type: 'mentions',
+        to_id: 'topic:software-architecture',
+        to_kind: 'topic',
+        status: 'draft',
+        confidence: 'weak',
+        provenance: 'agent-synthesized',
+        review_state: 'unreviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    ).toThrow('mentions edges must connect topic/section/source/evidence/assertion to entity');
   });
 
   it('creates a valid belongs_to_taxonomy edge that targets taxonomy', () => {

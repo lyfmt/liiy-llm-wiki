@@ -46,12 +46,51 @@ export function buildGraphProjection(input: BuildGraphProjectionInput): GraphPro
 
   return {
     root,
-    taxonomy: [],
-    sections: [],
-    entities: [],
+    taxonomy: collectTaxonomy(root.id, input.edges, nodesById),
+    sections: collectSections(root.id, input.edges, nodesById),
+    entities: collectEntities(root.id, input.edges, nodesById),
     assertions,
     evidence: dedupeEvidence(assertions.flatMap((assertion) => assertion.evidence))
   };
+}
+
+function collectTaxonomy(
+  rootId: string,
+  edges: GraphEdge[],
+  nodesById: Map<string, GraphNode>
+): GraphNode[] {
+  return collectTargetNodes({
+    edges,
+    edgeFilter: (edge) => edge.type === 'belongs_to_taxonomy' && edge.from_id === rootId,
+    nodeResolver: (edge) => nodesById.get(edge.to_id),
+    nodeFilter: (node) => node.kind === 'taxonomy'
+  });
+}
+
+function collectSections(
+  rootId: string,
+  edges: GraphEdge[],
+  nodesById: Map<string, GraphNode>
+): GraphNode[] {
+  return collectTargetNodes({
+    edges,
+    edgeFilter: (edge) => edge.type === 'part_of' && edge.to_id === rootId && edge.from_kind === 'section',
+    nodeResolver: (edge) => nodesById.get(edge.from_id),
+    nodeFilter: (node) => node.kind === 'section'
+  });
+}
+
+function collectEntities(
+  rootId: string,
+  edges: GraphEdge[],
+  nodesById: Map<string, GraphNode>
+): GraphNode[] {
+  return collectTargetNodes({
+    edges,
+    edgeFilter: (edge) => edge.type === 'mentions' && edge.from_id === rootId,
+    nodeResolver: (edge) => nodesById.get(edge.to_id),
+    nodeFilter: (node) => node.kind === 'entity'
+  });
 }
 
 function collectAssertionEvidence(
@@ -131,4 +170,25 @@ function dedupeEvidence(
   }
 
   return [...unique.values()];
+}
+
+function collectTargetNodes(input: {
+  edges: GraphEdge[];
+  edgeFilter: (edge: GraphEdge) => boolean;
+  nodeResolver: (edge: GraphEdge) => GraphNode | undefined;
+  nodeFilter: (node: GraphNode) => boolean;
+}): GraphNode[] {
+  const unique = new Map<string, GraphNode>();
+
+  for (const edge of [...input.edges].filter(input.edgeFilter).sort(compareEdges)) {
+    const node = input.nodeResolver(edge);
+
+    if (!node || !input.nodeFilter(node) || unique.has(node.id)) {
+      continue;
+    }
+
+    unique.set(node.id, node);
+  }
+
+  return [...unique.values()].sort(compareNodes);
 }
