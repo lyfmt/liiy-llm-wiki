@@ -5,7 +5,7 @@ import { createGraphNode } from '../../src/domain/graph-node.js';
 import { buildGraphProjection } from '../../src/storage/graph-projection-store.js';
 
 describe('buildGraphProjection', () => {
-  it('builds a topic projection with assertions and evidence summaries', () => {
+  it('builds a topic projection with section grounding, assertions, and evidence summaries', () => {
     const taxonomy = createGraphNode({
       id: 'taxonomy:software-architecture',
       kind: 'taxonomy',
@@ -89,7 +89,9 @@ describe('buildGraphProjection', () => {
       confidence: 'asserted',
       provenance: 'human-edited',
       review_state: 'reviewed',
-      attributes: {},
+      attributes: {
+        path: 'raw/accepted/projection-spec.md'
+      },
       created_at: '2026-04-20T00:00:00.000Z',
       updated_at: '2026-04-20T00:00:00.000Z'
     });
@@ -141,6 +143,20 @@ describe('buildGraphProjection', () => {
           updated_at: '2026-04-20T00:00:00.000Z'
         }),
         createGraphEdge({
+          edge_id: 'edge:grounded-by:1',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'grounded_by',
+          to_id: evidence.id,
+          to_kind: 'evidence',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'source-derived',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
           edge_id: 'edge:about:1',
           from_id: assertion.id,
           from_kind: 'assertion',
@@ -187,7 +203,16 @@ describe('buildGraphProjection', () => {
 
     expect(projection.root.id).toBe(topic.id);
     expect(projection.taxonomy.map((node) => node.id)).toEqual([taxonomy.id]);
-    expect(projection.sections.map((node) => node.id)).toEqual([section.id]);
+    expect(projection.sections).toEqual([
+      {
+        node: expect.objectContaining({ id: section.id }),
+        grounding: {
+          source_paths: ['raw/accepted/projection-spec.md'],
+          locators: ['spec.md#projection'],
+          anchor_count: 1
+        }
+      }
+    ]);
     expect(projection.entities.map((node) => node.id)).toEqual([entity.id]);
     expect(projection.assertions).toHaveLength(1);
     expect(projection.assertions[0]?.node.id).toBe(assertion.id);
@@ -320,6 +345,160 @@ describe('buildGraphProjection', () => {
     expect(projection.evidence[0]).toMatchObject({
       node: { id: 'evidence:shared' },
       source: null
+    });
+  });
+
+  it('dedupes section grounding locators and source paths while counting anchors', () => {
+    const topic = createGraphNode({
+      id: 'topic:graph-projection',
+      kind: 'topic',
+      title: 'Graph Projection',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {},
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const section = createGraphNode({
+      id: 'section:projection-overview',
+      kind: 'section',
+      title: 'Projection Overview',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {},
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const evidenceA = createGraphNode({
+      id: 'evidence:projection-a',
+      kind: 'evidence',
+      title: 'Projection anchor A',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'source-derived',
+      review_state: 'reviewed',
+      attributes: {
+        locator: 'spec.md#projection',
+        excerpt: 'Anchor A.'
+      },
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const evidenceB = createGraphNode({
+      id: 'evidence:projection-b',
+      kind: 'evidence',
+      title: 'Projection anchor B',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'source-derived',
+      review_state: 'reviewed',
+      attributes: {
+        locator: 'spec.md#projection',
+        excerpt: 'Anchor B.'
+      },
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+    const source = createGraphNode({
+      id: 'source:projection-spec',
+      kind: 'source',
+      title: 'Projection Spec',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'human-edited',
+      review_state: 'reviewed',
+      attributes: {
+        path: 'raw/accepted/projection-spec.md'
+      },
+      created_at: '2026-04-20T00:00:00.000Z',
+      updated_at: '2026-04-20T00:00:00.000Z'
+    });
+
+    const projection = buildGraphProjection({
+      rootId: topic.id,
+      nodes: [topic, section, evidenceA, evidenceB, source],
+      edges: [
+        createGraphEdge({
+          edge_id: 'edge:part-of:section',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'part_of',
+          to_id: topic.id,
+          to_kind: 'topic',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'human-edited',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:grounded-by:a',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'grounded_by',
+          to_id: evidenceA.id,
+          to_kind: 'evidence',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'source-derived',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:grounded-by:b',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'grounded_by',
+          to_id: evidenceB.id,
+          to_kind: 'evidence',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'source-derived',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:derived-from:a',
+          from_id: evidenceA.id,
+          from_kind: 'evidence',
+          type: 'derived_from',
+          to_id: source.id,
+          to_kind: 'source',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'source-derived',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        createGraphEdge({
+          edge_id: 'edge:derived-from:b',
+          from_id: evidenceB.id,
+          from_kind: 'evidence',
+          type: 'derived_from',
+          to_id: source.id,
+          to_kind: 'source',
+          status: 'active',
+          confidence: 'asserted',
+          provenance: 'source-derived',
+          review_state: 'reviewed',
+          created_at: '2026-04-20T00:00:00.000Z',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        })
+      ]
+    });
+
+    expect(projection.sections[0]?.grounding).toEqual({
+      source_paths: ['raw/accepted/projection-spec.md'],
+      locators: ['spec.md#projection'],
+      anchor_count: 2
     });
   });
 

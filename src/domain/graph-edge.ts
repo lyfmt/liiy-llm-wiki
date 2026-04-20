@@ -3,6 +3,7 @@ import type { GraphConfidence, GraphNodeKind, GraphProvenance, GraphReviewState,
 export type GraphEdgeType =
   | 'about'
   | 'supported_by'
+  | 'grounded_by'
   | 'derived_from'
   | 'belongs_to_taxonomy'
   | 'part_of'
@@ -80,6 +81,10 @@ function validateGraphEdgeKinds(input: CreateGraphEdgeInput): void {
 
   if (input.type === 'supported_by' && (input.from_kind !== 'assertion' || input.to_kind !== 'evidence')) {
     throw new Error('supported_by edges must connect assertion to evidence');
+  }
+
+  if (input.type === 'grounded_by' && (input.from_kind !== 'section' || input.to_kind !== 'evidence')) {
+    throw new Error('grounded_by edges must connect section to evidence');
   }
 
   if (input.type === 'derived_from' && (input.from_kind !== 'evidence' || input.to_kind !== 'source')) {

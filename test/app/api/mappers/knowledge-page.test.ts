@@ -98,6 +98,8 @@ describe('buildKnowledgePageResponseDto', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-graph-mapper-'));
 
     try {
+      const markdownBody = '# Patch First\n\nMarkdown body stays authoritative.\n';
+
       await saveKnowledgePage(
         root,
         createKnowledgePage({
@@ -106,11 +108,25 @@ describe('buildKnowledgePageResponseDto', () => {
           title: 'Patch First',
           summary: 'Patch-first summary.',
           source_refs: ['raw/accepted/design.md'],
-          outgoing_links: [],
+          outgoing_links: ['wiki/queries/patch-first-question.md'],
           status: 'active',
           updated_at: '2026-04-18T00:00:00.000Z'
         }),
-        '# Patch First\n\nPatch-first updates keep page structure stable.\n'
+        markdownBody
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/queries/patch-first-question.md',
+          kind: 'query',
+          title: 'Patch First Question',
+          summary: 'Related query summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-18T00:10:00.000Z'
+        }),
+        '# Patch First Question\n\nPatch first is a reusable answer.\n'
       );
 
       const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
@@ -122,14 +138,35 @@ describe('buildKnowledgePageResponseDto', () => {
       const response = await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
 
       expect(response.navigation.taxonomy[0]?.title).toBe('Engineering');
-      expect(response.navigation.sections[0]?.title).toBe('Patch First Overview');
+      expect(response.navigation.sections[0]).toMatchObject({
+        id: 'section:patch-first-overview',
+        title: 'Patch First Overview',
+        summary: 'Overview section.',
+        grounding: {
+          anchor_count: 1,
+          source_paths: ['raw/accepted/patch-first-spec.md'],
+          locators: ['spec.md#stable']
+        }
+      });
       expect(response.navigation.entities[0]?.title).toBe('Graph Reader');
+      expect(response.page.body).toBe(markdownBody);
       expect(response.navigation.assertions[0]).toMatchObject({
         id: 'assertion:patch-first-stability',
         title: 'Patch First Stability',
         statement: 'Patch-first updates keep the reading path stable.',
         evidence_count: 1
       });
+      expect(response.navigation.source_refs.map((entry) => entry.path)).toEqual(['raw/accepted/design.md']);
+      expect(response.navigation.outgoing_links).toEqual([
+        {
+          target: 'wiki/queries/patch-first-question.md',
+          is_local_wiki_page: true,
+          links: {
+            app: '/app/pages/query/patch-first-question',
+            api: '/api/pages/query/patch-first-question'
+          }
+        }
+      ]);
       expect(Array.isArray(response.navigation.related_by_source)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -167,6 +204,48 @@ describe('buildKnowledgePageResponseDto', () => {
       expect(response.navigation.assertions).toEqual([]);
       expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).not.toHaveBeenCalled();
       expect(vi.mocked(graphDatabase.createGraphDatabasePool)).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves graph-only topic targets as local wiki pages in outgoing links', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-query-graph-link-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/queries/patch-first-question.md',
+          kind: 'query',
+          title: 'Patch First Question',
+          summary: 'Related query summary.',
+          source_refs: ['raw/accepted/patch-first-spec.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-18T00:10:00.000Z'
+        }),
+        '# Patch First Question\n\nPatch first is a reusable answer.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockImplementation(async (_client, requestedSlug) =>
+        requestedSlug === 'patch-first' ? buildTopicGraphProjectionInput(requestedSlug) : null
+      );
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'query', 'patch-first-question');
+
+      expect(response.navigation.outgoing_links).toEqual([
+        {
+          target: 'wiki/topics/patch-first.md',
+          is_local_wiki_page: true,
+          links: {
+            app: '/app/pages/topic/patch-first',
+            api: '/api/pages/topic/patch-first'
+          }
+        }
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -216,6 +295,73 @@ describe('buildKnowledgePageResponseDto', () => {
       expect(response.navigation.entities).toEqual([]);
       expect(response.navigation.assertions).toEqual([]);
       expect(response.navigation.source_refs[0]?.path).toBe('raw/accepted/design.md');
+      expect(response.navigation.related_by_source[0]?.title).toBe('Patch First Question');
+      expect(response.navigation.backlinks[0]?.title).toBe('Patch First Question');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns a topic response from graph data when markdown is missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-synthesized-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/queries/patch-first-question.md',
+          kind: 'query',
+          title: 'Patch First Question',
+          summary: 'Related query summary.',
+          source_refs: ['raw/accepted/patch-first-spec.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-18T00:10:00.000Z'
+        }),
+        '# Patch First Question\n\nPatch first is a reusable answer.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockResolvedValue(
+        buildTopicGraphProjectionInput('patch-first')
+      );
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
+
+      expect(response.page).toMatchObject({
+        kind: 'topic',
+        slug: 'patch-first',
+        path: 'wiki/topics/patch-first.md',
+        title: 'Patch First',
+        summary: 'Patch-first summary.',
+        aliases: ['Patching First'],
+        tags: [],
+        status: 'active',
+        updated_at: '2026-04-20T12:00:00.000Z'
+      });
+      expect(response.page.body).toContain('# Patch First');
+      expect(response.navigation.sections[0]).toMatchObject({
+        id: 'section:patch-first-overview',
+        title: 'Patch First Overview',
+        summary: 'Overview section.',
+        grounding: {
+          anchor_count: 1,
+          source_paths: ['raw/accepted/patch-first-spec.md'],
+          locators: ['spec.md#stable']
+        }
+      });
+      expect(response.navigation.source_refs[0]?.path).toBe('raw/accepted/patch-first-spec.md');
+      expect(response.navigation.outgoing_links).toEqual([
+        {
+          target: 'wiki/sources/patch-first-spec.md',
+          is_local_wiki_page: false,
+          links: {
+            app: null,
+            api: null
+          }
+        }
+      ]);
       expect(response.navigation.related_by_source[0]?.title).toBe('Patch First Question');
       expect(response.navigation.backlinks[0]?.title).toBe('Patch First Question');
     } finally {
@@ -309,13 +455,14 @@ function buildTopicGraphProjectionInput(slug: string) {
     kind: 'topic',
     title: 'Patch First',
     summary: 'Patch-first summary.',
+    aliases: ['Patching First'],
     status: 'active',
     confidence: 'asserted',
     provenance: 'human-edited',
     review_state: 'reviewed',
     attributes: {},
     created_at: '2026-04-20T00:00:00.000Z',
-    updated_at: '2026-04-20T00:00:00.000Z'
+    updated_at: '2026-04-20T12:00:00.000Z'
   });
   const section = createGraphNode({
     id: 'section:patch-first-overview',
@@ -383,7 +530,9 @@ function buildTopicGraphProjectionInput(slug: string) {
     confidence: 'asserted',
     provenance: 'human-edited',
     review_state: 'reviewed',
-    attributes: {},
+    attributes: {
+      path: 'raw/accepted/patch-first-spec.md'
+    },
     created_at: '2026-04-20T00:00:00.000Z',
     updated_at: '2026-04-20T00:00:00.000Z'
   });
@@ -416,6 +565,20 @@ function buildTopicGraphProjectionInput(slug: string) {
         status: 'active',
         confidence: 'asserted',
         provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:grounded-by:patch-first',
+        from_id: section.id,
+        from_kind: 'section',
+        type: 'grounded_by',
+        to_id: evidence.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
         review_state: 'reviewed',
         created_at: '2026-04-20T00:00:00.000Z',
         updated_at: '2026-04-20T00:00:00.000Z'

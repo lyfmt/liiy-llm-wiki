@@ -81,6 +81,14 @@ describe('loadTopicGraphProjectionInput', () => {
           to_kind: 'topic'
         }),
         createEdge({
+          edge_id: 'edge:grounded-by:patch-first',
+          from_id: section.id,
+          from_kind: 'section',
+          type: 'grounded_by',
+          to_id: evidence.id,
+          to_kind: 'evidence'
+        }),
+        createEdge({
           edge_id: 'edge:about:patch-first',
           from_id: assertion.id,
           from_kind: 'assertion',
@@ -133,6 +141,7 @@ describe('loadTopicGraphProjectionInput', () => {
       expect.arrayContaining([
         'belongs_to_taxonomy',
         'part_of',
+        'grounded_by',
         'mentions',
         'about',
         'supported_by',
@@ -140,7 +149,7 @@ describe('loadTopicGraphProjectionInput', () => {
       ])
     );
     expect(result?.nodes).toHaveLength(7);
-    expect(result?.edges).toHaveLength(6);
+    expect(result?.edges).toHaveLength(7);
     expect(client.calls).toEqual([
       'node:topic:patch-first',
       'outgoing:topic:patch-first',
@@ -149,8 +158,9 @@ describe('loadTopicGraphProjectionInput', () => {
       'node:entity:graph-reader',
       'node:section:patch-first-overview',
       'node:assertion:patch-first-stability',
-      'outgoing:assertion:patch-first-stability',
+      'outgoing:section:patch-first-overview',
       'node:evidence:patch-first-spec',
+      'outgoing:assertion:patch-first-stability',
       'outgoing:evidence:patch-first-spec',
       'node:source:patch-first-spec'
     ]);

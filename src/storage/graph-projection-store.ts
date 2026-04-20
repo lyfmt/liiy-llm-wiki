@@ -1,10 +1,21 @@
 import type { GraphEdge } from '../domain/graph-edge.js';
 import type { GraphNode } from '../domain/graph-node.js';
 
+export interface SectionGroundingSummary {
+  source_paths: string[];
+  locators: string[];
+  anchor_count: number;
+}
+
+export interface GraphProjectionSection {
+  node: GraphNode;
+  grounding: SectionGroundingSummary;
+}
+
 export interface GraphProjection {
   root: GraphNode;
   taxonomy: GraphNode[];
-  sections: GraphNode[];
+  sections: GraphProjectionSection[];
   entities: GraphNode[];
   assertions: Array<{
     node: GraphNode;
@@ -71,13 +82,16 @@ function collectSections(
   rootId: string,
   edges: GraphEdge[],
   nodesById: Map<string, GraphNode>
-): GraphNode[] {
+): GraphProjectionSection[] {
   return collectTargetNodes({
     edges,
     edgeFilter: (edge) => edge.type === 'part_of' && edge.to_id === rootId && edge.from_kind === 'section',
     nodeResolver: (edge) => nodesById.get(edge.from_id),
     nodeFilter: (node) => node.kind === 'section'
-  });
+  }).map((node) => ({
+    node,
+    grounding: collectSectionGrounding(node.id, edges, nodesById)
+  }));
 }
 
 function collectEntities(
@@ -119,6 +133,41 @@ function collectAssertionEvidence(
     .sort((left, right) => compareNodes(left.node, right.node));
 }
 
+function collectSectionGrounding(
+  sectionId: string,
+  edges: GraphEdge[],
+  nodesById: Map<string, GraphNode>
+): SectionGroundingSummary {
+  const groundedEvidence = [...edges]
+    .filter(
+      (edge) => edge.type === 'grounded_by' && edge.from_id === sectionId && edge.from_kind === 'section'
+    )
+    .sort(compareEdges)
+    .map((edge) => {
+      const evidenceNode = nodesById.get(edge.to_id);
+
+      if (!evidenceNode || evidenceNode.kind !== 'evidence') {
+        return null;
+      }
+
+      return {
+        node: evidenceNode,
+        source: findEvidenceSource(evidenceNode.id, edges, nodesById)
+      };
+    })
+    .filter((entry): entry is { node: GraphNode; source: GraphNode | null } => entry !== null);
+
+  return {
+    source_paths: collectUniqueStrings(
+      groundedEvidence.map((entry) => extractSourcePath(entry.source)).filter((value): value is string => value !== null)
+    ),
+    locators: collectUniqueStrings(
+      groundedEvidence.map((entry) => extractLocator(entry.node)).filter((value): value is string => value !== null)
+    ),
+    anchor_count: groundedEvidence.length
+  };
+}
+
 function findEvidenceSource(
   evidenceId: string,
   edges: GraphEdge[],
@@ -142,6 +191,20 @@ function findEvidenceSource(
 
   const sourceNode = nodesById.get(sourceId);
   return sourceNode?.kind === 'source' ? sourceNode : null;
+}
+
+function extractSourcePath(source: GraphNode | null): string | null {
+  const path = typeof source?.attributes.path === 'string' ? source.attributes.path.trim() : '';
+  return path === '' ? null : path;
+}
+
+function extractLocator(node: GraphNode): string | null {
+  const locator = typeof node.attributes.locator === 'string' ? node.attributes.locator.trim() : '';
+  return locator === '' ? null : locator;
+}
+
+function collectUniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function compareEdges(left: GraphEdge, right: GraphEdge): number {

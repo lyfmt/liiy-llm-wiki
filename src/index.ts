@@ -21,6 +21,17 @@ export type {
 } from './domain/graph-node.js';
 export { createGraphEdge } from './domain/graph-edge.js';
 export type { GraphEdge, GraphEdgeType } from './domain/graph-edge.js';
+export { createSourceGroundedIngest } from './domain/source-grounded-ingest.js';
+export type {
+  CreateSourceGroundedIngestInput,
+  SourceGroundedIngest,
+  SourceGroundedIngestEvidence,
+  SourceGroundedIngestEvidenceInput,
+  SourceGroundedIngestSection,
+  SourceGroundedIngestSectionInput,
+  SourceGroundedIngestTopic,
+  SourceGroundedIngestTopicInput
+} from './domain/source-grounded-ingest.js';
 export { createRequestRun } from './domain/request-run.js';
 export type { RequestRun, RequestRunStatus } from './domain/request-run.js';
 export { createChangeSet } from './domain/change-set.js';

@@ -55,6 +55,11 @@ export interface KnowledgePageResponse {
       id: string;
       title: string;
       summary: string;
+      grounding: {
+        source_paths: string[];
+        locators: string[];
+        anchor_count: number;
+      };
     }>;
     entities: Array<{
       id: string;

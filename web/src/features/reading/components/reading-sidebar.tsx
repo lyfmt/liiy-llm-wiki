@@ -93,7 +93,12 @@ export function ReadingSidebar({ data, headings }: { data: KnowledgePageResponse
                           {sectionItems.length > 0 ? (
                             <div className="mt-2 space-y-2">
                               {sectionItems.map((item) => (
-                                <GraphNavCard key={item.id} title={item.title} description={item.summary || '暂无章节摘要。'} />
+                                <GraphNavCard
+                                  key={item.id}
+                                  title={item.title}
+                                  description={item.summary || '暂无章节摘要。'}
+                                  meta={formatSectionGroundingMeta(item.grounding)}
+                                />
                               ))}
                             </div>
                           ) : (
@@ -202,7 +207,15 @@ function SidebarGroup({ label, children }: { label: string; children: React.Reac
   );
 }
 
-function GraphNavCard({ title, description, meta }: { title: string; description: string; meta?: string }) {
+function GraphNavCard({
+  title,
+  description,
+  meta
+}: {
+  title: string;
+  description: string;
+  meta?: React.ReactNode;
+}) {
   return (
     <div className="rounded-[12px] bg-white p-4">
       <div className="font-semibold text-[#1C2833]">{title}</div>
@@ -214,6 +227,24 @@ function GraphNavCard({ title, description, meta }: { title: string; description
 
 function EmptyStateText({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-sm leading-6 text-[#5D6D7E]">{children}</p>;
+}
+
+function formatSectionGroundingMeta(grounding: KnowledgePageResponse['navigation']['sections'][number]['grounding']) {
+  if (grounding.anchor_count === 0 && grounding.source_paths.length === 0 && grounding.locators.length === 0) {
+    return undefined;
+  }
+
+  const parts = [`${grounding.anchor_count} 个锚点`];
+
+  if (grounding.source_paths.length > 0) {
+    parts.push(grounding.source_paths.join(', '));
+  }
+
+  if (grounding.locators.length > 0) {
+    parts.push(grounding.locators.join(', '));
+  }
+
+  return parts.join(' · ');
 }
 
 export function RelatedPagesPanel({ data }: { data: KnowledgePageResponse }) {

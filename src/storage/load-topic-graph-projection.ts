@@ -45,10 +45,15 @@ export async function loadTopicGraphProjectionInput(
     await addNodeIfPresent(client, edge.to_id, nodes);
   }
 
+  const sectionIds: string[] = [];
   const assertionIds: string[] = [];
 
   for (const edge of rootIncomingEdges) {
     await addNodeIfPresent(client, edge.from_id, nodes);
+
+    if (edge.type === 'part_of' && edge.from_kind === 'section') {
+      sectionIds.push(edge.from_id);
+    }
 
     if (edge.type === 'about' && edge.from_kind === 'assertion') {
       assertionIds.push(edge.from_id);
@@ -56,6 +61,22 @@ export async function loadTopicGraphProjectionInput(
   }
 
   const evidenceIds: string[] = [];
+
+  for (const sectionId of sectionIds) {
+    const sectionOutgoingEdges = (await listOutgoingGraphEdges(client, sectionId)).filter(
+      (edge) =>
+        edge.from_id === sectionId &&
+        edge.from_kind === 'section' &&
+        edge.type === 'grounded_by' &&
+        edge.to_kind === 'evidence'
+    );
+
+    for (const edge of sectionOutgoingEdges) {
+      edges.set(edge.edge_id, edge);
+      evidenceIds.push(edge.to_id);
+      await addNodeIfPresent(client, edge.to_id, nodes);
+    }
+  }
 
   for (const assertionId of assertionIds) {
     const assertionOutgoingEdges = (await listOutgoingGraphEdges(client, assertionId)).filter(
@@ -73,7 +94,7 @@ export async function loadTopicGraphProjectionInput(
     }
   }
 
-  for (const evidenceId of evidenceIds) {
+  for (const evidenceId of [...new Set(evidenceIds)]) {
     const evidenceOutgoingEdges = (await listOutgoingGraphEdges(client, evidenceId)).filter(
       (edge) =>
         edge.from_id === evidenceId &&

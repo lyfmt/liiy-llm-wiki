@@ -250,7 +250,16 @@ describe('createWebServer', () => {
           api: '/api/sources/src-001'
         });
         expect(readingDto.body.navigation.taxonomy[0]?.title).toBe('Engineering');
-        expect(readingDto.body.navigation.sections[0]?.title).toBe('Patch First Overview');
+        expect(readingDto.body.navigation.sections[0]).toMatchObject({
+          id: 'section:patch-first-overview',
+          title: 'Patch First Overview',
+          summary: 'Overview section.',
+          grounding: {
+            anchor_count: 1,
+            source_paths: ['raw/accepted/patch-first-spec.md'],
+            locators: ['spec.md#stable']
+          }
+        });
         expect(readingDto.body.navigation.entities[0]?.title).toBe('Graph Reader');
         expect(readingDto.body.navigation.assertions[0]?.statement).toContain('stable');
         expect(readingDto.body.navigation.related_by_source[0]?.links).toEqual({
@@ -1398,7 +1407,9 @@ function buildTopicGraphProjectionInput(slug: string) {
     confidence: 'asserted',
     provenance: 'human-edited',
     review_state: 'reviewed',
-    attributes: {},
+    attributes: {
+      path: 'raw/accepted/patch-first-spec.md'
+    },
     created_at: '2026-04-20T00:00:00.000Z',
     updated_at: '2026-04-20T00:00:00.000Z'
   });
@@ -1431,6 +1442,20 @@ function buildTopicGraphProjectionInput(slug: string) {
         status: 'active',
         confidence: 'asserted',
         provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:grounded-by:patch-first',
+        from_id: section.id,
+        from_kind: 'section',
+        type: 'grounded_by',
+        to_id: evidence.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
         review_state: 'reviewed',
         created_at: '2026-04-20T00:00:00.000Z',
         updated_at: '2026-04-20T00:00:00.000Z'

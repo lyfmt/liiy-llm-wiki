@@ -163,6 +163,46 @@ describe('createGraphEdge', () => {
     expect(edge.type).toBe('derived_from');
   });
 
+  it('creates a valid section to evidence grounded_by edge', () => {
+    const edge = createGraphEdge({
+      edge_id: 'edge:grounded-by:valid',
+      from_id: 'section:adapter-pattern',
+      from_kind: 'section',
+      type: 'grounded_by',
+      to_id: 'evidence:gof-p45-para2',
+      to_kind: 'evidence',
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'source-derived',
+      review_state: 'reviewed',
+      qualifiers: {},
+      created_at: '2026-04-19T00:00:00.000Z',
+      updated_at: '2026-04-19T00:00:00.000Z'
+    });
+
+    expect(edge.type).toBe('grounded_by');
+  });
+
+  it('rejects invalid grounded_by edge kinds', () => {
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:grounded-by:invalid',
+        from_id: 'topic:design-patterns',
+        from_kind: 'topic',
+        type: 'grounded_by',
+        to_id: 'evidence:gof-p45-para2',
+        to_kind: 'evidence',
+        status: 'draft',
+        confidence: 'weak',
+        provenance: 'agent-synthesized',
+        review_state: 'unreviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    ).toThrow('grounded_by edges must connect section to evidence');
+  });
+
   it('rejects invalid derived_from kinds', () => {
     expect(() =>
       createGraphEdge({
