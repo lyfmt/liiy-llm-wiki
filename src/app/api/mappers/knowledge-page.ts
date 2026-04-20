@@ -1,7 +1,11 @@
 import type { KnowledgePageResponseDto, KnowledgePageLinkDto } from '../dto/knowledge-page.js';
 import type { KnowledgePage, KnowledgePageKind } from '../../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../../storage/list-knowledge-pages.js';
+import { buildGraphProjection } from '../../../storage/graph-projection-store.js';
+import { createGraphDatabasePool, resolveGraphDatabaseUrl } from '../../../storage/graph-database.js';
 import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../../storage/knowledge-page-store.js';
+import { loadProjectEnv } from '../../../storage/project-env-store.js';
+import { loadTopicGraphProjectionInput } from '../../../storage/load-topic-graph-projection.js';
 import { listSourceManifests } from '../../../storage/source-manifest-store.js';
 
 export async function buildKnowledgePageResponseDto(
@@ -11,6 +15,7 @@ export async function buildKnowledgePageResponseDto(
 ): Promise<KnowledgePageResponseDto> {
   const loaded = await loadKnowledgePage(root, kind, slug);
   const [allPages, manifests] = await Promise.all([loadAllKnowledgePages(root), listSourceManifests(root)]);
+  const graphNavigation = kind === 'topic' ? await loadTopicGraphNavigation(root, slug) : null;
   const pageSummaries = new Map(allPages.map((page) => [page.path, toKnowledgePageLinkDto(page)]));
   const manifestByPath = new Map(manifests.map((manifest) => [manifest.path, manifest]));
   const currentSourceRefs = new Set(loaded.page.source_refs);
@@ -43,6 +48,10 @@ export async function buildKnowledgePageResponseDto(
       body: loaded.body
     },
     navigation: {
+      taxonomy: graphNavigation?.taxonomy ?? [],
+      sections: graphNavigation?.sections ?? [],
+      entities: graphNavigation?.entities ?? [],
+      assertions: graphNavigation?.assertions ?? [],
       source_refs: loaded.page.source_refs.map((sourceRef) => {
         const manifest = manifestByPath.get(sourceRef) ?? null;
         return {
@@ -72,6 +81,54 @@ export async function buildKnowledgePageResponseDto(
       related_by_source: relatedBySource
     }
   };
+}
+
+async function loadTopicGraphNavigation(
+  root: string,
+  slug: string
+): Promise<KnowledgePageResponseDto['navigation'] | null> {
+  try {
+    const projectEnv = await loadProjectEnv(root);
+    const databaseUrl = resolveGraphDatabaseUrl(projectEnv.contents);
+    const client = createGraphDatabasePool(databaseUrl);
+    const graphInput = await loadTopicGraphProjectionInput(client, slug);
+
+    if (!graphInput) {
+      return null;
+    }
+
+    const projection = buildGraphProjection(graphInput);
+
+    return {
+      taxonomy: projection.taxonomy.map((node) => ({
+        id: node.id,
+        title: node.title,
+        summary: node.summary
+      })),
+      sections: projection.sections.map((node) => ({
+        id: node.id,
+        title: node.title,
+        summary: node.summary
+      })),
+      entities: projection.entities.map((node) => ({
+        id: node.id,
+        title: node.title,
+        summary: node.summary
+      })),
+      assertions: projection.assertions.map((entry) => ({
+        id: entry.node.id,
+        title: entry.node.title,
+        statement: toAssertionStatement(entry.node),
+        evidence_count: entry.evidence.length
+      })),
+      source_refs: [],
+      outgoing_links: [],
+      backlinks: [],
+      related_by_source: []
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
@@ -104,4 +161,18 @@ function toKnowledgePageLinkDto(page: KnowledgePage): KnowledgePageLinkDto {
       api: `/api/pages/${page.kind}/${encodeURIComponent(slug)}`
     }
   };
+}
+
+function toAssertionStatement(node: { title: string; summary: string; attributes: Record<string, unknown> }): string {
+  const statement = typeof node.attributes.statement === 'string' ? node.attributes.statement.trim() : '';
+
+  if (statement !== '') {
+    return statement;
+  }
+
+  if (node.summary.trim() !== '') {
+    return node.summary.trim();
+  }
+
+  return node.title;
 }

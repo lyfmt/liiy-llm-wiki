@@ -26,6 +26,27 @@ export interface KnowledgePageResponseDto {
     body: string;
   };
   navigation: {
+    taxonomy: Array<{
+      id: string;
+      title: string;
+      summary: string;
+    }>;
+    sections: Array<{
+      id: string;
+      title: string;
+      summary: string;
+    }>;
+    entities: Array<{
+      id: string;
+      title: string;
+      summary: string;
+    }>;
+    assertions: Array<{
+      id: string;
+      title: string;
+      statement: string;
+      evidence_count: number;
+    }>;
     source_refs: Array<{
       path: string;
       manifest_id: string | null;
