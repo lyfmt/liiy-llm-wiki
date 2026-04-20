@@ -9,6 +9,11 @@ import { clampTags, formatDateLabel, type MarkdownHeading } from '@/lib/utils';
 
 export function ReadingSidebar({ data, headings }: { data: KnowledgePageResponse; headings: MarkdownHeading[] }) {
   const tags = clampTags(data.page.tags, 3);
+  const taxonomyItems = (data.navigation.taxonomy ?? []).slice(0, 3);
+  const sectionItems = (data.navigation.sections ?? []).slice(0, 3);
+  const entityItems = (data.navigation.entities ?? []).slice(0, 3);
+  const assertionItems = (data.navigation.assertions ?? []).slice(0, 2);
+  const hasGraphNavigation = taxonomyItems.length > 0 || sectionItems.length > 0 || entityItems.length > 0 || assertionItems.length > 0;
 
   return (
     <aside className="w-full lg:w-[260px] lg:flex-none">
@@ -62,6 +67,74 @@ export function ReadingSidebar({ data, headings }: { data: KnowledgePageResponse
                           </div>
                         </div>
                       </div>
+                    </section>
+
+                    <Separator className="bg-gray-200" />
+
+                    <section>
+                      <h4 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-400">
+                        <List size={14} /> 图谱概览
+                      </h4>
+                      {hasGraphNavigation ? (
+                        <div className="space-y-4 text-sm">
+                          <SidebarGroup label="分类">
+                            {taxonomyItems.length > 0 ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {taxonomyItems.map((item) => (
+                                  <Badge key={item.id} variant="neutral">
+                                    {item.title}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <EmptyStateText>暂无分类信息。</EmptyStateText>
+                            )}
+                          </SidebarGroup>
+
+                          <SidebarGroup label="章节">
+                            {sectionItems.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {sectionItems.map((item) => (
+                                  <GraphNavCard key={item.id} title={item.title} description={item.summary || '暂无章节摘要。'} />
+                                ))}
+                              </div>
+                            ) : (
+                              <EmptyStateText>暂无章节信息。</EmptyStateText>
+                            )}
+                          </SidebarGroup>
+
+                          <SidebarGroup label="关键实体">
+                            {entityItems.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {entityItems.map((item) => (
+                                  <GraphNavCard key={item.id} title={item.title} description={item.summary || '暂无实体摘要。'} />
+                                ))}
+                              </div>
+                            ) : (
+                              <EmptyStateText>暂无关键实体。</EmptyStateText>
+                            )}
+                          </SidebarGroup>
+
+                          <SidebarGroup label="核心陈述">
+                            {assertionItems.length > 0 ? (
+                              <div className="mt-2 space-y-2">
+                                {assertionItems.map((item) => (
+                                  <GraphNavCard
+                                    key={item.id}
+                                    title={item.title}
+                                    description={item.statement}
+                                    meta={`证据 ${item.evidence_count} 条`}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <EmptyStateText>暂无核心陈述。</EmptyStateText>
+                            )}
+                          </SidebarGroup>
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-7 text-[#5D6D7E]">暂无图谱主题信息。</p>
+                      )}
                     </section>
 
                     <Separator className="bg-gray-200" />
@@ -123,6 +196,29 @@ function FactRow({ label, value }: { label: string; value: string }) {
       <div className="mt-1">{value}</div>
     </div>
   );
+}
+
+function SidebarGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="font-semibold text-[#1C2833]">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function GraphNavCard({ title, description, meta }: { title: string; description: string; meta?: string }) {
+  return (
+    <div className="rounded-[12px] bg-white p-4">
+      <div className="font-semibold text-[#1C2833]">{title}</div>
+      <div className="mt-1 text-sm leading-6 text-[#5D6D7E]">{description}</div>
+      {meta ? <div className="mt-2 text-xs text-gray-400">{meta}</div> : null}
+    </div>
+  );
+}
+
+function EmptyStateText({ children }: { children: React.ReactNode }) {
+  return <p className="mt-2 text-sm leading-6 text-[#5D6D7E]">{children}</p>;
 }
 
 export function RelatedPagesPanel({ data }: { data: KnowledgePageResponse }) {
