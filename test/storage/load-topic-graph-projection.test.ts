@@ -209,18 +209,19 @@ function createFakeGraphClient(input: {
   nodes: GraphNode[];
   edges: ReturnType<typeof createEdge>[];
 }): GraphDatabaseClient & { calls: string[] } {
-  const nodesById = new Map(input.nodes.map((node) => [node.id, node]));
-  const edgesByFromId = new Map<string, ReturnType<typeof createEdge>[]>();
-  const edgesByToId = new Map<string, ReturnType<typeof createEdge>[]>();
+  const nodesById = new Map(input.nodes.map((node) => [node.id, toRow(node)]));
+  const edgesByFromId = new Map<string, Record<string, unknown>[]>();
+  const edgesByToId = new Map<string, Record<string, unknown>[]>();
   const calls: string[] = [];
 
   for (const edge of input.edges) {
+    const edgeRow = toRow(edge);
     const outgoing = edgesByFromId.get(edge.from_id) ?? [];
-    outgoing.push(edge);
+    outgoing.push(edgeRow);
     edgesByFromId.set(edge.from_id, outgoing);
 
     const incoming = edgesByToId.get(edge.to_id) ?? [];
-    incoming.push(edge);
+    incoming.push(edgeRow);
     edgesByToId.set(edge.to_id, incoming);
   }
 
@@ -231,7 +232,7 @@ function createFakeGraphClient(input: {
 
       if (sql.includes('from graph_nodes') && sql.includes('where id = $1')) {
         calls.push(`node:${id}`);
-        return { rows: nodesById.has(id) ? [nodesById.get(id) as GraphNode] : [] };
+        return { rows: nodesById.has(id) ? [nodesById.get(id) as Record<string, unknown>] : [] };
       }
 
       if (sql.includes('from graph_edges') && sql.includes('where from_id = $1')) {
@@ -247,4 +248,8 @@ function createFakeGraphClient(input: {
       throw new Error(`Unexpected query: ${sql}`);
     }
   };
+}
+
+function toRow(value: object): Record<string, unknown> {
+  return { ...value };
 }

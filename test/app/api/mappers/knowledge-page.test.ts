@@ -135,6 +135,159 @@ describe('buildKnowledgePageResponseDto', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('does not trigger graph loading for non-topic pages', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-query-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/queries/patch-first-question.md',
+          kind: 'query',
+          title: 'Patch First Question',
+          summary: 'Related query summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-18T00:10:00.000Z'
+        }),
+        '# Patch First Question\n\nPatch first is a reusable answer.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      const graphDatabase = await import('../../../../src/storage/graph-database.js');
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'query', 'patch-first-question');
+
+      expect(response.page.kind).toBe('query');
+      expect(response.navigation.taxonomy).toEqual([]);
+      expect(response.navigation.sections).toEqual([]);
+      expect(response.navigation.entities).toEqual([]);
+      expect(response.navigation.assertions).toEqual([]);
+      expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).not.toHaveBeenCalled();
+      expect(vi.mocked(graphDatabase.createGraphDatabasePool)).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to markdown navigation only when the graph root is missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-fallback-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/topics/patch-first.md',
+          kind: 'topic',
+          title: 'Patch First',
+          summary: 'Patch-first summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-18T00:00:00.000Z'
+        }),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/queries/patch-first-question.md',
+          kind: 'query',
+          title: 'Patch First Question',
+          summary: 'Related query summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-18T00:10:00.000Z'
+        }),
+        '# Patch First Question\n\nPatch first is a reusable answer.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockResolvedValue(null);
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
+
+      expect(response.navigation.taxonomy).toEqual([]);
+      expect(response.navigation.sections).toEqual([]);
+      expect(response.navigation.entities).toEqual([]);
+      expect(response.navigation.assertions).toEqual([]);
+      expect(response.navigation.source_refs[0]?.path).toBe('raw/accepted/design.md');
+      expect(response.navigation.related_by_source[0]?.title).toBe('Patch First Question');
+      expect(response.navigation.backlinks[0]?.title).toBe('Patch First Question');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses a lazily initialized graph database pool across topic requests', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-pool-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/topics/patch-first.md',
+          kind: 'topic',
+          title: 'Patch First',
+          summary: 'Patch-first summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-18T00:00:00.000Z'
+        }),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      const graphDatabase = await import('../../../../src/storage/graph-database.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockResolvedValue(
+        buildTopicGraphProjectionInput('patch-first')
+      );
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
+      await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
+
+      expect(vi.mocked(graphDatabase.createGraphDatabasePool)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('propagates graph loading errors instead of silently falling back', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-graph-error-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/topics/patch-first.md',
+          kind: 'topic',
+          title: 'Patch First',
+          summary: 'Patch-first summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-18T00:00:00.000Z'
+        }),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockRejectedValue(new Error('graph unavailable'));
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+
+      await expect(buildKnowledgePageResponseDto(root, 'topic', 'patch-first')).rejects.toThrow('graph unavailable');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function buildTopicGraphProjectionInput(slug: string) {

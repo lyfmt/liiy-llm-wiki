@@ -2,11 +2,14 @@ import type { KnowledgePageResponseDto, KnowledgePageLinkDto } from '../dto/know
 import type { KnowledgePage, KnowledgePageKind } from '../../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../../storage/list-knowledge-pages.js';
 import { buildGraphProjection } from '../../../storage/graph-projection-store.js';
+import type { GraphDatabaseClient } from '../../../storage/graph-database.js';
 import { createGraphDatabasePool, resolveGraphDatabaseUrl } from '../../../storage/graph-database.js';
 import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../../storage/knowledge-page-store.js';
 import { loadProjectEnv } from '../../../storage/project-env-store.js';
 import { loadTopicGraphProjectionInput } from '../../../storage/load-topic-graph-projection.js';
 import { listSourceManifests } from '../../../storage/source-manifest-store.js';
+
+const graphClientsByDatabaseUrl = new Map<string, GraphDatabaseClient>();
 
 export async function buildKnowledgePageResponseDto(
   root: string,
@@ -87,48 +90,42 @@ async function loadTopicGraphNavigation(
   root: string,
   slug: string
 ): Promise<KnowledgePageResponseDto['navigation'] | null> {
-  try {
-    const projectEnv = await loadProjectEnv(root);
-    const databaseUrl = resolveGraphDatabaseUrl(projectEnv.contents);
-    const client = createGraphDatabasePool(databaseUrl);
-    const graphInput = await loadTopicGraphProjectionInput(client, slug);
+  const client = await getGraphClient(root);
+  const graphInput = await loadTopicGraphProjectionInput(client, slug);
 
-    if (!graphInput) {
-      return null;
-    }
-
-    const projection = buildGraphProjection(graphInput);
-
-    return {
-      taxonomy: projection.taxonomy.map((node) => ({
-        id: node.id,
-        title: node.title,
-        summary: node.summary
-      })),
-      sections: projection.sections.map((node) => ({
-        id: node.id,
-        title: node.title,
-        summary: node.summary
-      })),
-      entities: projection.entities.map((node) => ({
-        id: node.id,
-        title: node.title,
-        summary: node.summary
-      })),
-      assertions: projection.assertions.map((entry) => ({
-        id: entry.node.id,
-        title: entry.node.title,
-        statement: toAssertionStatement(entry.node),
-        evidence_count: entry.evidence.length
-      })),
-      source_refs: [],
-      outgoing_links: [],
-      backlinks: [],
-      related_by_source: []
-    };
-  } catch {
+  if (!graphInput) {
     return null;
   }
+
+  const projection = buildGraphProjection(graphInput);
+
+  return {
+    taxonomy: projection.taxonomy.map((node) => ({
+      id: node.id,
+      title: node.title,
+      summary: node.summary
+    })),
+    sections: projection.sections.map((node) => ({
+      id: node.id,
+      title: node.title,
+      summary: node.summary
+    })),
+    entities: projection.entities.map((node) => ({
+      id: node.id,
+      title: node.title,
+      summary: node.summary
+    })),
+    assertions: projection.assertions.map((entry) => ({
+      id: entry.node.id,
+      title: entry.node.title,
+      statement: toAssertionStatement(entry.node),
+      evidence_count: entry.evidence.length
+    })),
+    source_refs: [],
+    outgoing_links: [],
+    backlinks: [],
+    related_by_source: []
+  };
 }
 
 async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
@@ -175,4 +172,19 @@ function toAssertionStatement(node: { title: string; summary: string; attributes
   }
 
   return node.title;
+}
+
+async function getGraphClient(root: string): Promise<GraphDatabaseClient> {
+  const projectEnv = await loadProjectEnv(root);
+  const databaseUrl = resolveGraphDatabaseUrl(projectEnv.contents);
+  const cachedClient = graphClientsByDatabaseUrl.get(databaseUrl);
+
+  if (cachedClient) {
+    return cachedClient;
+  }
+
+  const client = createGraphDatabasePool(databaseUrl);
+  graphClientsByDatabaseUrl.set(databaseUrl, client);
+
+  return client;
 }
