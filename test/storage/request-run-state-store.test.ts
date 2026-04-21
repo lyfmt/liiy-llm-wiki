@@ -531,6 +531,50 @@ describe('request run state storage', () => {
     }
   });
 
+  it('persists subagent lifecycle events alongside the request run state', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-state-'));
+
+    try {
+      await saveRequestRunState(root, {
+        request_run: createRequestRun({
+          run_id: 'run-subagent-001',
+          user_request: 'delegate this task',
+          intent: 'mixed',
+          plan: ['delegate', 'collect receipt'],
+          status: 'done',
+          result_summary: 'delegation complete'
+        }),
+        tool_outcomes: [],
+        events: [
+          {
+            type: 'subagent_spawned',
+            timestamp: '2026-04-21T00:00:00.000Z',
+            summary: 'Spawned subagent worker',
+            status: 'running'
+          },
+          {
+            type: 'subagent_completed',
+            timestamp: '2026-04-21T00:00:01.000Z',
+            summary: 'Subagent worker completed',
+            status: 'done'
+          }
+        ],
+        draft_markdown: '# Draft\n\nSubagent delegation.\n',
+        result_markdown: '# Result\n\nSubagent delegation completed.\n',
+        changeset: null
+      });
+
+      const loaded = await loadRequestRunState(root, 'run-subagent-001');
+
+      expect(loaded.events).toEqual([
+        expect.objectContaining({ type: 'subagent_spawned', summary: 'Spawned subagent worker', status: 'running' }),
+        expect.objectContaining({ type: 'subagent_completed', summary: 'Subagent worker completed', status: 'done' })
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.each(missingArtifacts)('rejects a missing required artifact: %s', async (fileName) => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-state-'));
 

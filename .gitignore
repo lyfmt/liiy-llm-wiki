@@ -7,7 +7,11 @@ dist/
 .claude/
 .env
 .llm-wiki-liiy/
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/**
+!.agents/subagents/
+!.agents/subagents/**
 output/
 state/
 web/node_modules/

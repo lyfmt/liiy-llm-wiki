@@ -194,6 +194,350 @@ Use this skill when the user wants to turn a source into governed wiki content.
     }
   });
 
+  it('exposes run_subagent to the main runtime and persists the subagent receipt in tool outcomes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const faux = registerFauxProvider({
+      api: 'test-runtime-subagent-agent',
+      provider: 'test-runtime-subagent-agent',
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          contextWindow: 200000,
+          maxTokens: 8192
+        }
+      ]
+    });
+
+    try {
+      await bootstrapProject(root);
+      await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
+      await writeFile(
+        path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
+        `---
+name: worker
+description: Execution-focused subagent for longer-running wiki tasks.
+default-tools: read_artifact write_artifact
+max-tools: read_artifact write_artifact
+receipt-schema: minimal-receipt-v1
+---
+
+# Worker
+
+Read the provided artifacts and write outputs into the requested artifact directory.
+`,
+        'utf8'
+      );
+      await mkdir(path.join(root, 'state', 'artifacts', 'subagents', 'input'), { recursive: true });
+      await writeFile(
+        path.join(root, 'state', 'artifacts', 'subagents', 'input', 'source.json'),
+        '{\n  "topic": "patch-first"\n}\n',
+        'utf8'
+      );
+
+      faux.setResponses([
+        buildSingleToolCallingAssistantMessage('tool-call-subagent-read-1', 'read_artifact', {
+          artifactPath: 'state/artifacts/subagents/input/source.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-subagent-write-1', 'write_artifact', {
+          artifactPath: 'state/artifacts/subagents/run-001--subagent-1/receipt.json',
+          content: '{\n  "status": "done"\n}\n'
+        }),
+        fauxAssistantMessage(
+          JSON.stringify({
+            status: 'done',
+            summary: 'Subagent worker completed the requested artifact task.',
+            outputArtifacts: ['state/artifacts/subagents/run-001--subagent-1/receipt.json']
+          })
+        )
+      ]);
+      const model = faux.getModel('gpt-5.4');
+
+      if (!model) {
+        throw new Error('missing faux model');
+      }
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'delegate this artifact processing task',
+        runId: 'runtime-agent-subagent-001',
+        model,
+        streamFn: createRunSubagentStream((context) => {
+          expect(context.tools?.map((tool) => tool.name)).toContain('run_subagent');
+          expect(context.tools?.map((tool) => tool.name)).toContain('read_artifact');
+          expect(context.tools?.map((tool) => tool.name)).toContain('write_artifact');
+        })
+      });
+
+      expect(result.toolOutcomes).toEqual([
+        expect.objectContaining({
+          toolName: 'run_subagent',
+          summary: 'ran subagent worker',
+          data: expect.objectContaining({
+            effectiveTools: ['read_artifact', 'write_artifact'],
+            receipt: {
+              status: 'done',
+              summary: 'Subagent worker completed the requested artifact task.',
+              outputArtifacts: ['state/artifacts/subagents/run-001--subagent-1/receipt.json']
+            }
+          }),
+          resultMarkdown: expect.stringContaining('Subagent worker completed the requested artifact task.')
+        })
+      ]);
+    } finally {
+      faux.unregister();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('routes knowledge insertion through read_skill and run_skill while the skill orchestrates preparation, splitting, subagent work, and coverage audit', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const faux = registerFauxProvider({
+      api: 'test-runtime-knowledge-insert-agent',
+      provider: 'test-runtime-knowledge-insert-agent',
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          contextWindow: 200000,
+          maxTokens: 8192
+        }
+      ]
+    });
+
+    try {
+      await bootstrapProject(root);
+      await mkdir(path.join(root, '.agents', 'skills', 'knowledge-insert'), { recursive: true });
+      await writeFile(
+        path.join(root, '.agents', 'skills', 'knowledge-insert', 'SKILL.md'),
+        `---
+name: knowledge-insert
+description: Insert durable source knowledge into the governed wiki.
+allowed-tools:
+  - prepare_source_resource
+  - split_resource_blocks
+  - run_subagent
+  - audit_extraction_coverage
+---
+
+# Knowledge Insert
+`,
+        'utf8'
+      );
+      await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
+      await writeFile(
+        path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
+        `---
+name: worker
+description: Execution-focused subagent for knowledge extraction batches.
+default-tools: read_artifact write_artifact
+max-tools: read_artifact write_artifact
+receipt-schema: minimal-receipt-v1
+---
+
+# Worker
+`,
+        'utf8'
+      );
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design.md'),
+        '# Design Patterns\n\nPatch-first systems keep durable notes.\n\nThey prefer incremental edits over rewrites.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Design Patterns',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design-patterns',
+          imported_at: '2026-04-21T00:00:00.000Z'
+        })
+      );
+      await mkdir(path.join(root, 'state', 'artifacts', 'subagents', 'input'), { recursive: true });
+      await writeFile(
+        path.join(root, 'state', 'artifacts', 'subagents', 'input', 'blocks.json'),
+        '{\n  "blocks": [\n    { "blockId": "block-001" },\n    { "blockId": "block-002" }\n  ]\n}\n',
+        'utf8'
+      );
+
+      faux.setResponses([
+        buildSingleToolCallingAssistantMessage('tool-call-prepare-source-1', 'prepare_source_resource', {
+          manifestId: 'src-001',
+          rawPath: 'raw/accepted/design.md',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-split-blocks-1', 'split_resource_blocks', {
+          resourceArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/blocks.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-run-subagent-knowledge-1', 'run_subagent', {
+          profile: 'worker',
+          taskPrompt: 'Extract grounded knowledge candidates and write merged candidates.',
+          inputArtifacts: ['state/artifacts/subagents/input/blocks.json'],
+          outputDir: 'state/artifacts/subagents/run-001--writer-1',
+          requestedTools: ['read_artifact', 'write_artifact']
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-subagent-read-knowledge-1', 'read_artifact', {
+          artifactPath: 'state/artifacts/subagents/input/blocks.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-subagent-write-knowledge-1', 'write_artifact', {
+          artifactPath: 'state/artifacts/subagents/run-001--writer-1/merged.json',
+          content: JSON.stringify(
+            {
+              entities: [],
+              assertions: [],
+              relations: [],
+              evidenceAnchors: [
+                { anchorId: 'anchor-001', blockId: 'block-001', quote: 'Patch-first systems keep durable notes.' },
+                { anchorId: 'anchor-002', blockId: 'block-001', quote: 'Durable notes stay grounded.' },
+                { anchorId: 'anchor-003', blockId: 'block-002', quote: 'They prefer incremental edits over rewrites.' },
+                { anchorId: 'anchor-004', blockId: 'block-002', quote: 'Incremental edits stay stable.' }
+              ]
+            },
+            null,
+            2
+          )
+        }),
+        fauxAssistantMessage(
+          JSON.stringify({
+            status: 'done',
+            summary: 'Worker wrote merged candidates for the prepared source.',
+            outputArtifacts: ['state/artifacts/subagents/run-001--writer-1/merged.json']
+          })
+        ),
+        buildSingleToolCallingAssistantMessage('tool-call-audit-coverage-1', 'audit_extraction_coverage', {
+          blocksArtifact: 'state/artifacts/knowledge-insert/run-001/blocks.json',
+          mergedCandidatesArtifact: 'state/artifacts/subagents/run-001--writer-1/merged.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/coverage.json'
+        }),
+        fauxAssistantMessage('Knowledge insert skill completed for src-001.')
+      ]);
+
+      const model = faux.getModel('gpt-5.4');
+
+      if (!model) {
+        throw new Error('missing faux model');
+      }
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'insert the accepted design source into the wiki as durable knowledge',
+        runId: 'runtime-agent-knowledge-insert-001',
+        model,
+        streamFn: createReadAndRunKnowledgeInsertSkillStream((context) => {
+          expect(context.systemPrompt).toContain('# Available Skills');
+          expect(context.systemPrompt).toContain('knowledge-insert');
+          expect(context.tools?.map((tool) => tool.name)).toContain('read_skill');
+          expect(context.tools?.map((tool) => tool.name)).toContain('run_skill');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('prepare_source_resource');
+          expect(context.tools?.map((tool) => tool.name)).not.toContain('split_resource_blocks');
+        })
+      });
+
+      expect(result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('prepare_source_resource');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('split_resource_blocks');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('audit_extraction_coverage');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('coverage audit passed');
+      expect(result.assistantText).toContain('Knowledge insert skill completed for src-001.');
+    } finally {
+      faux.unregister();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('marks failed subagent receipts as failed lifecycle events and failed runtime status', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const faux = registerFauxProvider({
+      api: 'test-runtime-subagent-agent',
+      provider: 'test-runtime-subagent-agent',
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          contextWindow: 200000,
+          maxTokens: 8192
+        }
+      ]
+    });
+
+    try {
+      await bootstrapProject(root);
+      await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
+      await writeFile(
+        path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
+        `---
+name: worker
+description: Execution-focused subagent for longer-running wiki tasks.
+default-tools: read_artifact write_artifact
+max-tools: read_artifact write_artifact
+receipt-schema: minimal-receipt-v1
+---
+
+# Worker
+
+Read the provided artifacts and write outputs into the requested artifact directory.
+`,
+        'utf8'
+      );
+      faux.setResponses([
+        fauxAssistantMessage(
+          JSON.stringify({
+            status: 'failed',
+            summary: 'Subagent worker could not complete the requested task.',
+            outputArtifacts: []
+          })
+        )
+      ]);
+      const model = faux.getModel('gpt-5.4');
+
+      if (!model) {
+        throw new Error('missing faux model');
+      }
+
+      const result = await runRuntimeAgent({
+        root,
+        userRequest: 'delegate this artifact processing task',
+        runId: 'runtime-agent-subagent-failed-001',
+        model,
+        streamFn: createRunSubagentStream()
+      });
+
+      expect(result.toolOutcomes).toEqual([
+        expect.objectContaining({
+          toolName: 'run_subagent',
+          data: expect.objectContaining({
+            receipt: {
+              status: 'failed',
+              summary: 'Subagent worker could not complete the requested task.',
+              outputArtifacts: []
+            }
+          })
+        })
+      ]);
+
+      const runState = await loadRequestRunState(root, 'runtime-agent-subagent-failed-001');
+      expect(runState.request_run.status).toBe('failed');
+      expect(runState.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'subagent_spawned', status: 'running' }),
+          expect.objectContaining({ type: 'subagent_failed', status: 'failed', summary: 'Subagent worker failed' }),
+          expect.objectContaining({ type: 'run_failed', status: 'failed' })
+        ])
+      );
+    } finally {
+      faux.unregister();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs a PI-backed query flow and persists a single runtime snapshot', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
 
@@ -1085,6 +1429,113 @@ function createReadAndRunSkillStream(inspectContext?: (context: Context) => void
               name: 'source-to-wiki',
               task: 'Read the source manifest and complete the skill task.'
             })
+        : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
+function createReadAndRunKnowledgeInsertSkillStream(inspectContext?: (context: Context) => void): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    inspectContext?.(context);
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1
+        ? buildSingleToolCallingAssistantMessage('tool-call-read-skill-knowledge-1', 'read_skill', {
+            name: 'knowledge-insert'
+          })
+        : callCount === 2
+          ? buildSingleToolCallingAssistantMessage('tool-call-run-skill-knowledge-1', 'run_skill', {
+              name: 'knowledge-insert',
+              task: 'Prepare the source, split it into blocks, use a worker subagent, and audit coverage.'
+            })
+          : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
+function createRunSubagentStream(inspectContext?: (context: Context) => void): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    inspectContext?.(context);
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1
+        ? buildSingleToolCallingAssistantMessage('tool-call-run-subagent-1', 'run_subagent', {
+            profile: 'worker',
+            taskPrompt: 'Read the provided artifact and write a receipt.',
+            inputArtifacts: ['state/artifacts/subagents/input/source.json'],
+            outputDir: 'state/artifacts/subagents/run-001--subagent-1',
+            requestedTools: ['read_artifact', 'write_artifact', 'apply_draft_upsert']
+          })
         : buildFinalAssistantMessage(context);
 
     queueMicrotask(() => {

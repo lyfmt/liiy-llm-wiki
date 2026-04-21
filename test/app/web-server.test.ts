@@ -242,7 +242,10 @@ describe('createWebServer', () => {
         expect(wikiPage.body.page.summary).toBe('Patch-first updates keep page');
         expect(Array.isArray(wikiPage.body.navigation.backlinks)).toBe(true);
         expect(chatOperations.body.settings.model).toBe('gpt-5.4');
-        expect(chatOperations.body.project_env).toEqual({ source: 'project_root_env', keys: ['RUNTIME_API_KEY'] });
+        expect(chatOperations.body.project_env).toEqual({
+          source: 'project_root_env',
+          keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
+        });
         expect(chatOperations.body.runtime_readiness).toMatchObject({
           ready: false,
           status: 'missing_api_key',
@@ -414,8 +417,8 @@ describe('createWebServer', () => {
         expect(currentSettings.body.settings.model).toBe('gpt-5.4');
         expect(currentSettings.body.project_env).toEqual({
           source: 'project_root_env',
-          keys: ['RUNTIME_API_KEY'],
-          contents: 'RUNTIME_API_KEY=\n'
+          keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL'],
+          contents: 'RUNTIME_API_KEY=\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n'
         });
         expect(updatedSettings.body.settings).toMatchObject({
           model: 'gpt-5.4',
@@ -430,7 +433,7 @@ describe('createWebServer', () => {
           allow_lint_autofix: true
         });
         expect(updatedSettings.body.project_env.source).toBe('project_root_env');
-        expect(updatedSettings.body.project_env.keys).toEqual(['RUNTIME_API_KEY']);
+        expect(updatedSettings.body.project_env.keys).toEqual(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']);
         expect(updatedSettings.body.project_env.contents).toContain('RUNTIME_API_KEY=web-updated-key');
         expect(updatedSettings.body.project_env.contents).toContain('MODEL_NOTES="operator ready"');
         expect(await readFile(path.join(root, '.env'), 'utf8')).toContain('RUNTIME_API_KEY=web-updated-key');

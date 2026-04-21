@@ -14,8 +14,11 @@ import {
   createFindSourceManifestTool,
   createIngestSourceTool,
   createListWikiPagesTool,
+  createReadArtifactTool,
   createReadSkillTool,
   createRunSkillTool,
+  createRunSubagentTool,
+  discoverRuntimeSubagents,
   createReadWikiPageTool,
   createListSourceManifestsTool,
   createReadSourceManifestTool,
@@ -23,6 +26,7 @@ import {
   createUpsertKnowledgePageTool,
   createLintWikiTool,
   createQueryWikiTool,
+  createWriteArtifactTool,
   runRuntimeAgent,
   resolveRuntimeModel,
   runUpsertKnowledgePageFlow
@@ -34,6 +38,7 @@ import type {
   SkillSummary,
   LoadedSkillDocument,
   RuntimeSkillDiagnostic,
+  DiscoverRuntimeSubagentsResult,
   DraftKnowledgePageParameters,
   DraftQueryPageParameters,
   ApplyDraftUpsertParameters,
@@ -41,18 +46,24 @@ import type {
   FindSourceManifestParameters,
   IngestSourceParameters,
   ListWikiPagesParameters,
+  ReadArtifactParameters,
   ReadWikiPageParameters,
+  RunSubagentInput,
+  RunSubagentParameters,
   RunSkillParameters,
   ListSourceManifestsParameters,
   ReadSourceManifestParameters,
   ReadRawSourceParameters,
+  SubagentProfile,
+  SubagentReceipt,
   UpsertKnowledgePageParameters,
   LintWikiParameters,
   QueryWikiParameters,
   RunRuntimeAgentInput,
   RuntimeIntent,
   RuntimeToolOutcome,
-  ResolveRuntimeModelResult
+  ResolveRuntimeModelResult,
+  WriteArtifactParameters
 } from '../../src/index.js';
 
 describe('package entry runtime exports', () => {
@@ -70,14 +81,18 @@ describe('package entry runtime exports', () => {
     expect(typeof createFindSourceManifestTool).toBe('function');
     expect(typeof createIngestSourceTool).toBe('function');
     expect(typeof createListWikiPagesTool).toBe('function');
+    expect(typeof createReadArtifactTool).toBe('function');
     expect(typeof createReadSkillTool).toBe('function');
     expect(typeof createRunSkillTool).toBe('function');
+    expect(typeof createRunSubagentTool).toBe('function');
+    expect(typeof discoverRuntimeSubagents).toBe('function');
     expect(typeof createReadWikiPageTool).toBe('function');
     expect(typeof createListSourceManifestsTool).toBe('function');
     expect(typeof createReadSourceManifestTool).toBe('function');
     expect(typeof createReadRawSourceTool).toBe('function');
     expect(typeof createUpsertKnowledgePageTool).toBe('function');
     expect(typeof createQueryWikiTool).toBe('function');
+    expect(typeof createWriteArtifactTool).toBe('function');
     expect(typeof createLintWikiTool).toBe('function');
     expect(typeof runRuntimeAgent).toBe('function');
     expect(typeof resolveRuntimeModel).toBe('function');
@@ -90,6 +105,9 @@ describe('package entry runtime exports', () => {
     const skillSummary: SkillSummary | null = null;
     const loadedSkillDocument: LoadedSkillDocument | null = null;
     const skillDiagnostic: RuntimeSkillDiagnostic | null = null;
+    const discoveredSubagents: DiscoverRuntimeSubagentsResult | null = null;
+    const subagentProfile: SubagentProfile | null = null;
+    const subagentReceipt: SubagentReceipt | null = null;
     const toolOutcome: RuntimeToolOutcome | null = null;
     const agentInput: RunRuntimeAgentInput | null = null;
     const draftParams: DraftKnowledgePageParameters | null = null;
@@ -99,6 +117,9 @@ describe('package entry runtime exports', () => {
     const findParams: FindSourceManifestParameters | null = null;
     const ingestParams: IngestSourceParameters | null = null;
     const listWikiPagesParams: ListWikiPagesParameters | null = null;
+    const readArtifactParams: ReadArtifactParameters | null = null;
+    const runSubagentInput: RunSubagentInput | null = null;
+    const runSubagentParams: RunSubagentParameters | null = null;
     const runSkillParams: RunSkillParameters | null = null;
     const readWikiPageParams: ReadWikiPageParameters | null = null;
     const listSourceManifestsParams: ListSourceManifestsParameters | null = null;
@@ -106,6 +127,7 @@ describe('package entry runtime exports', () => {
     const readRawSourceParams: ReadRawSourceParameters | null = null;
     const upsertKnowledgePageParams: UpsertKnowledgePageParameters | null = null;
     const queryParams: QueryWikiParameters | null = null;
+    const writeArtifactParams: WriteArtifactParameters | null = null;
     const lintParams: LintWikiParameters | null = null;
     const resolvedModel: ResolveRuntimeModelResult | null = null;
 
@@ -116,6 +138,9 @@ describe('package entry runtime exports', () => {
     expect(skillSummary).toBeNull();
     expect(loadedSkillDocument).toBeNull();
     expect(skillDiagnostic).toBeNull();
+    expect(discoveredSubagents).toBeNull();
+    expect(subagentProfile).toBeNull();
+    expect(subagentReceipt).toBeNull();
     expect(toolOutcome).toBeNull();
     expect(agentInput).toBeNull();
     expect(draftParams).toBeNull();
@@ -125,6 +150,9 @@ describe('package entry runtime exports', () => {
     expect(findParams).toBeNull();
     expect(ingestParams).toBeNull();
     expect(listWikiPagesParams).toBeNull();
+    expect(readArtifactParams).toBeNull();
+    expect(runSubagentInput).toBeNull();
+    expect(runSubagentParams).toBeNull();
     expect(runSkillParams).toBeNull();
     expect(readWikiPageParams).toBeNull();
     expect(listSourceManifestsParams).toBeNull();
@@ -132,6 +160,7 @@ describe('package entry runtime exports', () => {
     expect(readRawSourceParams).toBeNull();
     expect(upsertKnowledgePageParams).toBeNull();
     expect(queryParams).toBeNull();
+    expect(writeArtifactParams).toBeNull();
     expect(lintParams).toBeNull();
     expect(resolvedModel).toBeNull();
   });

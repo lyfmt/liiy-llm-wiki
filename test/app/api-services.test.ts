@@ -261,7 +261,7 @@ describe('app api services', () => {
       expect(operations.settings.model).toBe('gpt-5.4');
       expect(operations.project_env).toEqual({
         source: 'project_root_env',
-        keys: ['RUNTIME_API_KEY']
+        keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
       });
       expect(operations.runtime_readiness).toMatchObject({
         ready: false,

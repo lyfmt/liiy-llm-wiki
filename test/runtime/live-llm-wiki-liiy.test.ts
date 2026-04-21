@@ -3,6 +3,15 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  createAssistantMessageEventStream,
+  fauxAssistantMessage,
+  registerFauxProvider,
+  type AssistantMessage,
+  type Context,
+  type ToolCall
+} from '@mariozechner/pi-ai';
+import type { StreamFn } from '@mariozechner/pi-agent-core';
 
 import { bootstrapProject } from '../../src/app/bootstrap-project.js';
 import { createWebServer } from '../../src/app/web-server.js';
@@ -21,6 +30,38 @@ interface JsonResponse<T> {
   status: number;
   body: T;
 }
+
+describe('stub knowledge insert runtime', () => {
+  it('applies the governed draft only after the reviewer subagent passes', async () => {
+    const passed = await runKnowledgeInsertGovernedStubScenario('done');
+    const failed = await runKnowledgeInsertGovernedStubScenario('needs_review');
+
+    try {
+      expect(await readFile(path.join(passed.root, 'state', 'artifacts', 'subagents', 'run-insert-001--writer-1', 'draft.md'), 'utf8')).toContain(
+        'Patch First Inserted'
+      );
+      expect(passed.result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
+      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent worker');
+      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent reviewer');
+      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('apply_draft_upsert');
+      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('lint_wiki');
+      expect(await readFile(path.join(passed.root, 'wiki', 'topics', 'patch-first-inserted.md'), 'utf8')).toContain(
+        '# Patch First Inserted'
+      );
+
+      expect(await readFile(path.join(failed.root, 'state', 'artifacts', 'subagents', 'run-insert-001--writer-1', 'draft.md'), 'utf8')).toContain(
+        'Patch First Inserted'
+      );
+      expect(failed.result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
+      expect(failed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent reviewer');
+      expect(failed.result.toolOutcomes[1]?.resultMarkdown).not.toContain('- apply_draft_upsert:');
+      await expect(readFile(path.join(failed.root, 'wiki', 'topics', 'patch-first-inserted.md'), 'utf8')).rejects.toThrow();
+    } finally {
+      await passed.cleanup();
+      await failed.cleanup();
+    }
+  });
+});
 
 liveDescribe('live llm-wiki-liiy runtime', () => {
   it(
@@ -625,5 +666,315 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<JsonRespon
   return {
     status: response.status,
     body: (await response.json()) as T
+  };
+}
+
+async function runKnowledgeInsertGovernedStubScenario(reviewerStatus: 'done' | 'needs_review') {
+  const root = await mkdtemp(path.join(tmpdir(), `llm-wiki-knowledge-insert-${reviewerStatus}-`));
+  const faux = registerFauxProvider({
+    api: `test-runtime-live-knowledge-insert-${reviewerStatus}`,
+    provider: `test-runtime-live-knowledge-insert-${reviewerStatus}`,
+    models: [
+      {
+        id: 'gpt-5.4',
+        name: 'GPT-5.4',
+        reasoning: true,
+        contextWindow: 200000,
+        maxTokens: 8192
+      }
+    ]
+  });
+
+  await bootstrapProject(root);
+  await mkdir(path.join(root, '.agents', 'skills', 'knowledge-insert'), { recursive: true });
+  await writeFile(
+    path.join(root, '.agents', 'skills', 'knowledge-insert', 'SKILL.md'),
+    `---
+name: knowledge-insert
+description: Insert governed knowledge drafts into the wiki.
+allowed-tools:
+  - run_subagent
+  - read_artifact
+  - draft_knowledge_page
+  - apply_draft_upsert
+  - lint_wiki
+---
+
+# Knowledge Insert
+`,
+    'utf8'
+  );
+  await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
+  await writeFile(
+    path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
+    `---
+name: worker
+description: Writer subagent for draft preparation.
+default-tools: read_artifact write_artifact
+max-tools: read_artifact write_artifact
+receipt-schema: minimal-receipt-v1
+---
+
+# Worker
+`,
+    'utf8'
+  );
+  await mkdir(path.join(root, '.agents', 'subagents', 'reviewer'), { recursive: true });
+  await writeFile(
+    path.join(root, '.agents', 'subagents', 'reviewer', 'SUBAGENT.md'),
+    `---
+name: reviewer
+description: Reviewer subagent for governed drafts.
+default-tools: read_artifact
+max-tools: read_artifact
+receipt-schema: minimal-receipt-v1
+---
+
+# Reviewer
+`,
+    'utf8'
+  );
+  await writeFile(
+    path.join(root, 'raw', 'accepted', 'design.md'),
+    '# Design\n\nPatch-first insertions stay grounded in observed evidence.\n',
+    'utf8'
+  );
+  await mkdir(path.join(root, 'state', 'artifacts', 'subagents', 'input'), { recursive: true });
+  await writeFile(
+    path.join(root, 'state', 'artifacts', 'subagents', 'input', 'blocks.json'),
+    '{\n  "blocks": [\n    { "blockId": "block-001" }\n  ]\n}\n',
+    'utf8'
+  );
+
+  faux.setResponses([
+    buildSingleToolCallingAssistantMessage('tool-call-live-run-writer-1', 'run_subagent', {
+      profile: 'worker',
+      taskPrompt: 'Write a grounded draft artifact for the proposed knowledge page.',
+      inputArtifacts: ['state/artifacts/subagents/input/blocks.json'],
+      outputDir: 'state/artifacts/subagents/run-insert-001--writer-1',
+      requestedTools: ['read_artifact', 'write_artifact']
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-writer-read-1', 'read_artifact', {
+      artifactPath: 'state/artifacts/subagents/input/blocks.json'
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-writer-write-1', 'write_artifact', {
+      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md',
+      content: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n'
+    }),
+    fauxAssistantMessage(
+      JSON.stringify({
+        status: 'done',
+        summary: 'Writer produced a governed draft artifact.',
+        outputArtifacts: ['state/artifacts/subagents/run-insert-001--writer-1/draft.md']
+      })
+    ),
+    buildSingleToolCallingAssistantMessage('tool-call-live-read-draft-1', 'read_artifact', {
+      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md'
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-draft-page-1', 'draft_knowledge_page', {
+      kind: 'topic',
+      slug: 'patch-first-inserted',
+      title: 'Patch First Inserted',
+      summary: 'Observed evidence for the inserted patch-first topic.',
+      status: 'active',
+      body: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
+      rationale: 'capture durable inserted knowledge',
+      source_refs: ['raw/accepted/design.md'],
+      outgoing_links: [],
+      aliases: [],
+      tags: ['patch-first', 'inserted']
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-run-reviewer-1', 'run_subagent', {
+      profile: 'reviewer',
+      taskPrompt: 'Review the proposed draft artifact and return a receipt.',
+      inputArtifacts: ['state/artifacts/subagents/run-insert-001--writer-1/draft.md'],
+      outputDir: 'state/artifacts/subagents/run-insert-001--reviewer-1'
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-reviewer-read-1', 'read_artifact', {
+      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md'
+    }),
+    fauxAssistantMessage(
+      JSON.stringify({
+        status: reviewerStatus,
+        summary:
+          reviewerStatus === 'done'
+            ? 'Reviewer confirmed the draft stays source-grounded.'
+            : 'Reviewer could not confirm the draft is source-grounded.',
+        outputArtifacts: []
+      })
+    ),
+    ...(reviewerStatus === 'done'
+      ? [
+          buildSingleToolCallingAssistantMessage('tool-call-live-apply-draft-1', 'apply_draft_upsert', {
+            targetPath: 'wiki/topics/patch-first-inserted.md',
+            upsertArguments: {
+              kind: 'topic',
+              slug: 'patch-first-inserted',
+              title: 'Patch First Inserted',
+              summary: 'Observed evidence for the inserted patch-first topic.',
+              status: 'active',
+              updated_at: '2026-04-21T00:00:00.000Z',
+              body: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
+              rationale: 'capture durable inserted knowledge',
+              source_refs: ['raw/accepted/design.md'],
+              outgoing_links: [],
+              aliases: [],
+              tags: ['patch-first', 'inserted']
+            }
+          }),
+          buildSingleToolCallingAssistantMessage('tool-call-live-lint-1', 'lint_wiki', {
+            userRequest: 'lint wiki after knowledge insert'
+          }),
+          fauxAssistantMessage('Knowledge insert draft applied after reviewer approval.')
+        ]
+      : [fauxAssistantMessage('Knowledge insert draft stopped at reviewer gate.')])
+  ]);
+
+  const model = faux.getModel('gpt-5.4');
+
+  if (!model) {
+    throw new Error('missing faux model');
+  }
+
+  const result = await runRuntimeAgent({
+    root,
+    userRequest: 'insert the observed patch-first evidence into the wiki with review',
+    runId: `runtime-live-knowledge-insert-${reviewerStatus}-001`,
+    model,
+    streamFn: createReadAndRunKnowledgeInsertSkillStream()
+  });
+
+  return {
+    root,
+    result,
+    cleanup: async () => {
+      faux.unregister();
+      await rm(root, { recursive: true, force: true });
+    }
+  };
+}
+
+function createReadAndRunKnowledgeInsertSkillStream(): StreamFn {
+  let callCount = 0;
+
+  return async (_model, context) => {
+    callCount += 1;
+    const stream = createAssistantMessageEventStream();
+    const assistantMessage =
+      callCount === 1
+        ? buildSingleToolCallingAssistantMessage('tool-call-live-read-skill-1', 'read_skill', {
+            name: 'knowledge-insert'
+          })
+        : callCount === 2
+          ? buildSingleToolCallingAssistantMessage('tool-call-live-run-skill-1', 'run_skill', {
+              name: 'knowledge-insert',
+              task: 'Use writer and reviewer subagents, then only apply the draft when review passes.'
+            })
+          : buildFinalAssistantMessage(context);
+
+    queueMicrotask(() => {
+      stream.push({ type: 'start', partial: assistantMessage });
+
+      if (assistantMessage.stopReason === 'toolUse') {
+        stream.push({ type: 'toolcall_start', contentIndex: 0, partial: assistantMessage });
+        stream.push({
+          type: 'toolcall_end',
+          contentIndex: 0,
+          toolCall: assistantMessage.content[0] as ToolCall,
+          partial: assistantMessage
+        });
+        stream.push({ type: 'done', reason: 'toolUse', message: assistantMessage });
+        return;
+      }
+
+      stream.push({ type: 'text_start', contentIndex: 0, partial: assistantMessage });
+      stream.push({
+        type: 'text_delta',
+        contentIndex: 0,
+        delta: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({
+        type: 'text_end',
+        contentIndex: 0,
+        content: (assistantMessage.content[0] as { type: 'text'; text: string }).text,
+        partial: assistantMessage
+      });
+      stream.push({ type: 'done', reason: 'stop', message: assistantMessage });
+    });
+
+    return stream;
+  };
+}
+
+function buildSingleToolCallingAssistantMessage(
+  id: string,
+  name: string,
+  argumentsValue: Record<string, string | boolean | number | string[] | Record<string, unknown>>
+): AssistantMessage {
+  return {
+    role: 'assistant',
+    content: [
+      {
+        type: 'toolCall',
+        id,
+        name,
+        arguments: argumentsValue
+      }
+    ],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0
+      }
+    },
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  };
+}
+
+function buildFinalAssistantMessage(context: Context): AssistantMessage {
+  const toolResult = context.messages[context.messages.length - 1];
+  const text =
+    toolResult && toolResult.role === 'toolResult'
+      ? toolResult.content
+          .filter((block): block is Extract<(typeof toolResult.content)[number], { type: 'text' }> => block.type === 'text')
+          .map((block) => block.text)
+          .join(' ')
+      : 'No result';
+
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0
+      }
+    },
+    stopReason: 'stop',
+    timestamp: Date.now()
   };
 }

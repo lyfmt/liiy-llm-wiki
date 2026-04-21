@@ -8,6 +8,7 @@ import { runIngestFlow } from '../flows/ingest/run-ingest-flow.js';
 import { syncReviewTask } from '../flows/review/sync-review-task.js';
 import { buildIntentPlan, classifyIntent, type RuntimeIntent } from './intent-classifier.js';
 import { discoverRuntimeSkills } from './skills/discovery.js';
+import { discoverRuntimeSubagents } from './subagents/discovery.js';
 import { buildRuntimeToolCatalog } from './tool-catalog.js';
 import {
   appendRuntimeSystemContext,
@@ -26,8 +27,10 @@ import {
 } from './tools/draft-knowledge-page.js';
 import { createModelBackedQueryAnswerSynthesizer } from './tools/query-wiki.js';
 import { createReadSkillTool } from './tools/read-skill.js';
+import { createRunSubagentTool } from './tools/run-subagent.js';
 import { createRunSkillTool } from './tools/run-skill.js';
 import type { SkillSummary } from './skills/types.js';
+import type { SubagentProfile } from './subagents/types.js';
 
 export interface RunRuntimeAgentInput {
   root: string;
@@ -115,14 +118,18 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
       })
     )
   ]);
-  const discoveredSkills = await discoverRuntimeSkills(input.root);
+  const [discoveredSkills, discoveredSubagents] = await Promise.all([
+    discoverRuntimeSkills(input.root),
+    discoverRuntimeSubagents(input.root)
+  ]);
   const tools = buildRuntimeTools(
     runtimeContext,
     resolvedRuntimeModel.model,
     resolvedRuntimeModel.getApiKey,
     querySynthesizer,
     knowledgeDraftSynthesizer,
-    discoveredSkills.skills
+    discoveredSkills.skills,
+    discoveredSubagents.profiles
   );
   const initialMessages = buildInitialMessages(runtimeUserContext, input.conversationHistory);
   const persistRuntimeSnapshot = async (overrides?: {
@@ -152,7 +159,10 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
   const agent = new Agent({
     initialState: {
       systemPrompt: appendRuntimeSystemContext(
-        buildRuntimeSystemPrompt(intent, { skills: discoveredSkills.skills }),
+        buildRuntimeSystemPrompt(intent, {
+          skills: discoveredSkills.skills,
+          subagents: discoveredSubagents.profiles
+        }),
         runtimeSystemContext
       ),
       model: resolvedRuntimeModel.model,
@@ -175,6 +185,25 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
         },
         { status: 'running', assistantSummary: `Running ${toolCall.name}…` }
       );
+
+      if (toolCall.name === 'run_subagent') {
+        const profile = isRecord(toolCall.arguments) && typeof toolCall.arguments.profile === 'string'
+          ? toolCall.arguments.profile
+          : 'unknown';
+
+        await appendEvent(
+          {
+            type: 'subagent_spawned',
+            timestamp: new Date().toISOString(),
+            summary: `Spawned subagent ${profile}`,
+            status: 'running',
+            tool_name: toolCall.name,
+            tool_call_id: toolCall.id,
+            data: { profile }
+          },
+          { status: 'running', assistantSummary: `Spawning subagent ${profile}…` }
+        );
+      }
 
       return undefined;
     },
@@ -231,6 +260,42 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
         );
       }
 
+      if (details.toolName === 'run_subagent') {
+        const profile = isRecord(details.data) && typeof details.data.profile === 'string'
+          ? details.data.profile
+          : toolCall.name;
+        const receipt = isRecord(details.data) && isRecord(details.data.receipt)
+          ? details.data.receipt
+          : undefined;
+        const receiptStatus = typeof receipt?.status === 'string' ? receipt.status : undefined;
+        const lifecycleFailed = isError || receiptStatus === 'failed';
+        const lifecycleType = lifecycleFailed ? 'subagent_failed' : 'subagent_completed';
+        const lifecycleSummary = lifecycleFailed ? `Subagent ${profile} failed` : `Subagent ${profile} completed`;
+        const lifecycleStatus = lifecycleFailed
+          ? 'failed'
+          : receiptStatus === 'needs_review'
+            ? 'needs_review'
+            : 'done';
+
+        await appendEvent(
+          {
+            type: lifecycleType,
+            timestamp: eventTimestamp,
+            summary: lifecycleSummary,
+            status: lifecycleStatus,
+            tool_name: details.toolName,
+            tool_call_id: toolCall.id,
+            evidence,
+            touched_files: touchedFiles,
+            data: {
+              ...(typeof profile === 'string' ? { profile } : {}),
+              ...(receipt ? { receipt } : {})
+            }
+          },
+          { status: 'running', assistantSummary: toolSummary }
+        );
+      }
+
       return {
         details
       };
@@ -275,17 +340,19 @@ export async function runRuntimeAgent(input: RunRuntimeAgentInput): Promise<RunR
     }
 
     const assistantText = collectAssistantText(agent.state.messages as RuntimeAgentMessage[], toolOutcomes);
+    const finalRuntimeStatus = deriveFinalRuntimeStatus(toolOutcomes);
+    const finalRuntimeEventType = finalRuntimeStatus === 'failed' ? 'run_failed' : 'run_completed';
     await appendEvent(
       {
-        type: 'run_completed',
+        type: finalRuntimeEventType,
         timestamp: new Date().toISOString(),
         summary: assistantText || 'Runtime completed without assistant text.',
-        status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+        status: finalRuntimeStatus,
         touched_files: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? [])),
         evidence: uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.evidence ?? []))
       },
       {
-        status: toolOutcomes.some((outcome) => outcome.needsReview) ? 'needs_review' : 'done',
+        status: finalRuntimeStatus,
         assistantSummary: assistantText || 'Runtime completed without assistant text.'
       }
     );
@@ -345,12 +412,23 @@ function buildRuntimeTools(
   getApiKey: (provider: string) => Promise<string | undefined> | string | undefined,
   querySynthesizer?: ReturnType<typeof createModelBackedQueryAnswerSynthesizer>,
   knowledgeDraftSynthesizer?: ReturnType<typeof createModelBackedKnowledgePageDraftSynthesizer>,
-  skills: SkillSummary[] = []
+  skills: SkillSummary[] = [],
+  subagents: SubagentProfile[] = []
 ) {
   const catalog = buildRuntimeToolCatalog(runtimeContext, {
     querySynthesizer,
     knowledgeDraftSynthesizer
   });
+  const runSubagentTool = createRunSubagentTool(runtimeContext, {
+    profiles: subagents,
+    toolCatalog: catalog,
+    model,
+    getApiKey
+  });
+  const skillToolCatalog = {
+    ...catalog,
+    run_subagent: runSubagentTool
+  };
   const skillOwnedTools = new Set(skills.flatMap((skill) => skill.allowedTools));
   const exposedCatalogTools = Object.values(catalog).filter((tool) => !skillOwnedTools.has(tool.name));
 
@@ -359,10 +437,11 @@ function buildRuntimeTools(
     createReadSkillTool(runtimeContext, { skills }),
     createRunSkillTool(runtimeContext, {
       skills,
-      toolCatalog: catalog,
+      toolCatalog: skillToolCatalog,
       model,
       getApiKey
-    })
+    }),
+    runSubagentTool
   ];
 }
 
@@ -450,6 +529,25 @@ function collectAssistantText(messages: RuntimeAgentMessage[], toolOutcomes: Run
   const latestOutcome = toolOutcomes[toolOutcomes.length - 1];
 
   return latestOutcome?.summary ?? '';
+}
+
+function deriveFinalRuntimeStatus(toolOutcomes: RuntimeToolOutcome[]): 'done' | 'needs_review' | 'failed' {
+  if (toolOutcomes.some((outcome) => isFailedSubagentOutcome(outcome))) {
+    return 'failed';
+  }
+
+  if (toolOutcomes.some((outcome) => outcome.needsReview)) {
+    return 'needs_review';
+  }
+
+  return 'done';
+}
+
+function isFailedSubagentOutcome(outcome: RuntimeToolOutcome): boolean {
+  return outcome.toolName === 'run_subagent'
+    && isRecord(outcome.data)
+    && isRecord(outcome.data.receipt)
+    && outcome.data.receipt.status === 'failed';
 }
 
 function normalizeRuntimeToolOutcome(

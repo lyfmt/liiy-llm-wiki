@@ -494,4 +494,86 @@ describe('createRuntimeRunState', () => {
       }
     ]);
   });
+
+  it('prefers the subagent receipt summary for the latest tool timeline entry', () => {
+    const state = createRuntimeRunState({
+      runId: 'run-runtime-subagent-001',
+      userRequest: 'delegate artifact processing',
+      intent: 'mixed',
+      plan: ['delegate', 'collect receipt'],
+      assistantSummary: 'Delegated artifact processing completed.',
+      toolOutcomes: [
+        {
+          toolName: 'run_subagent',
+          summary: 'ran subagent worker',
+          resultMarkdown: '# Subagent Run\n\nA long artifact-oriented report lives here.\n',
+          data: {
+            profile: 'worker',
+            effectiveTools: ['read_artifact', 'write_artifact'],
+            receipt: {
+              status: 'done',
+              summary: 'Subagent worker completed the requested artifact task.',
+              outputArtifacts: ['state/artifacts/subagents/run-001--subagent-1/receipt.json']
+            }
+          }
+        }
+      ]
+    });
+
+    expect(state.request_run.decisions).toEqual(['run_subagent: Subagent worker completed the requested artifact task.']);
+    expect(state.timeline_items).toEqual([
+      {
+        lane: 'user',
+        title: 'User request',
+        summary: 'delegate artifact processing',
+        meta: 'intent: mixed'
+      },
+      {
+        lane: 'assistant',
+        title: 'Execution plan',
+        summary: '2 steps planned',
+        meta: 'delegate → collect receipt'
+      },
+      {
+        lane: 'tool',
+        title: 'Latest tool outcome · run_subagent',
+        summary: 'Subagent worker completed the requested artifact task.',
+        meta: 'clear'
+      },
+      {
+        lane: 'assistant',
+        title: 'Result summary',
+        summary: 'Delegated artifact processing completed.',
+        meta: 'output: result available'
+      }
+    ]);
+    expect(state.draft_markdown).toContain('run_subagent: Subagent worker completed the requested artifact task.');
+  });
+
+  it('marks the runtime state as failed when a subagent receipt reports failure', () => {
+    const state = createRuntimeRunState({
+      runId: 'run-runtime-subagent-failed-001',
+      userRequest: 'delegate artifact processing',
+      intent: 'mixed',
+      plan: ['delegate', 'collect receipt'],
+      assistantSummary: 'The delegated work failed.',
+      toolOutcomes: [
+        {
+          toolName: 'run_subagent',
+          summary: 'ran subagent worker',
+          data: {
+            profile: 'worker',
+            receipt: {
+              status: 'failed',
+              summary: 'Subagent worker could not finish the requested task.',
+              outputArtifacts: []
+            }
+          }
+        }
+      ]
+    });
+
+    expect(state.request_run.status).toBe('failed');
+    expect(state.request_run.decisions).toEqual(['run_subagent: Subagent worker could not finish the requested task.']);
+  });
 });

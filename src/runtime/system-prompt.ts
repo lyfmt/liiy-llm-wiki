@@ -1,13 +1,16 @@
 import type { RuntimeIntent } from './intent-classifier.js';
 import { formatSkillsForPrompt } from './skills/format.js';
 import type { SkillSummary } from './skills/types.js';
+import type { SubagentProfile } from './subagents/types.js';
 
 export interface BuildRuntimeSystemPromptOptions {
   skills?: SkillSummary[];
+  subagents?: SubagentProfile[];
 }
 
 export function buildRuntimeSystemPrompt(intent: RuntimeIntent, options: BuildRuntimeSystemPromptOptions = {}): string {
   const skills = options.skills ?? [];
+  const subagents = options.subagents ?? [];
 
   return [
     '# Identity',
@@ -43,6 +46,15 @@ export function buildRuntimeSystemPrompt(intent: RuntimeIntent, options: BuildRu
     'Choose the minimum helpful tool sequence for the current request.',
     'When several tools could help, prefer the smallest and most observable one first.',
     'When no tool is necessary, do not use one.',
+    ...(subagents.length > 0
+      ? [
+          '',
+          '# Available Subagents',
+          'Use run_subagent when a bounded task would benefit from isolated context, artifact handoff, or a short receipt instead of long inline reasoning.',
+          'Keep the main thread short: pass long inputs and outputs through state/artifacts/, and keep only the receipt summary in the main flow.',
+          ...subagents.map((subagent) => `- ${subagent.name}: ${subagent.description}`)
+        ]
+      : []),
     ...(skills.length > 0
       ? [
           '',

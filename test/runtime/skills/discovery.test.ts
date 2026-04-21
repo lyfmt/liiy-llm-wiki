@@ -70,4 +70,10 @@ name: broken-skill
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('discovers the project knowledge-insert skill', async () => {
+    const result = await discoverRuntimeSkills(process.cwd());
+
+    expect(result.skills.map((skill) => skill.name)).toContain('knowledge-insert');
+  });
 });

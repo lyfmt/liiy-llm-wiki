@@ -17,6 +17,9 @@ export type RequestRunEventType =
   | 'tool_finished'
   | 'evidence_added'
   | 'draft_updated'
+  | 'subagent_spawned'
+  | 'subagent_completed'
+  | 'subagent_failed'
   | 'run_completed'
   | 'run_failed';
 
@@ -438,6 +441,9 @@ function isRequestRunEventType(value: unknown): value is RequestRunEventType {
     || value === 'tool_finished'
     || value === 'evidence_added'
     || value === 'draft_updated'
+    || value === 'subagent_spawned'
+    || value === 'subagent_completed'
+    || value === 'subagent_failed'
     || value === 'run_completed'
     || value === 'run_failed';
 }
