@@ -2,6 +2,7 @@ import path from 'node:path';
 
 export interface ProjectPaths {
   root: string;
+  agentSubagents: string;
   raw: string;
   rawInbox: string;
   rawAccepted: string;
@@ -26,6 +27,7 @@ export interface ProjectPaths {
   stateCheckpoints: string;
   stateDrafts: string;
   stateArtifacts: string;
+  stateSubagents: string;
   stateTasks: string;
   stateChatSessions: string;
   stateChatSettings: string;
@@ -34,6 +36,7 @@ export interface ProjectPaths {
 }
 
 export function buildProjectPaths(root: string): ProjectPaths {
+  const agentSubagents = path.join(root, '.agents', 'subagents');
   const raw = path.join(root, 'raw');
   const docs = path.join(root, 'docs');
   const docsSuperpowers = path.join(docs, 'superpowers');
@@ -41,9 +44,11 @@ export function buildProjectPaths(root: string): ProjectPaths {
   const schema = path.join(root, 'schema');
   const state = path.join(root, 'state');
   const stateArtifacts = path.join(state, 'artifacts');
+  const stateSubagents = path.join(stateArtifacts, 'subagents');
 
   return {
     root,
+    agentSubagents,
     raw,
     rawInbox: path.join(raw, 'inbox'),
     rawAccepted: path.join(raw, 'accepted'),
@@ -68,6 +73,7 @@ export function buildProjectPaths(root: string): ProjectPaths {
     stateCheckpoints: path.join(state, 'checkpoints'),
     stateDrafts: path.join(state, 'drafts'),
     stateArtifacts,
+    stateSubagents,
     stateTasks: path.join(stateArtifacts, 'tasks'),
     stateChatSessions: path.join(stateArtifacts, 'chat-sessions'),
     stateChatSettings: path.join(stateArtifacts, 'chat-settings.json'),

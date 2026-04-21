@@ -7,7 +7,10 @@ import { fauxAssistantMessage, registerFauxProvider } from '@mariozechner/pi-ai'
 import { bootstrapProject } from '../../../src/app/bootstrap-project.js';
 import { createSourceManifest } from '../../../src/domain/source-manifest.js';
 import { createRuntimeContext } from '../../../src/runtime/runtime-context.js';
+import { discoverRuntimeSkills } from '../../../src/runtime/skills/discovery.js';
+import { discoverRuntimeSubagents } from '../../../src/runtime/subagents/discovery.js';
 import { buildRuntimeToolCatalog } from '../../../src/runtime/tool-catalog.js';
+import { createRunSubagentTool } from '../../../src/runtime/tools/run-subagent.js';
 import { createRunSkillTool } from '../../../src/runtime/tools/run-skill.js';
 import { saveSourceManifest } from '../../../src/storage/source-manifest-store.js';
 
@@ -130,6 +133,85 @@ allowed-tools: read_source_manifest
     } finally {
       faux.unregister();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the project knowledge-insert skill with the governed tool contract', async () => {
+    const root = process.cwd();
+    const faux = registerFauxProvider({
+      api: 'test-runtime-knowledge-insert-skill',
+      provider: 'test-runtime-knowledge-insert-skill',
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          contextWindow: 200000,
+          maxTokens: 8192
+        }
+      ]
+    });
+
+    try {
+      faux.setResponses([fauxAssistantMessage('Knowledge insert skill is ready.')]);
+
+      const model = faux.getModel('gpt-5.4');
+
+      if (!model) {
+        throw new Error('missing faux model');
+      }
+
+      const catalogContext = createRuntimeContext({
+        root,
+        runId: 'runtime-run-skill-knowledge-insert-catalog-001'
+      });
+      const toolCatalog = buildRuntimeToolCatalog(catalogContext);
+      const runSubagentTool = createRunSubagentTool(catalogContext, {
+        profiles: (await discoverRuntimeSubagents(root)).profiles,
+        toolCatalog,
+        model,
+        getApiKey: () => undefined
+      });
+
+      const tool = createRunSkillTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-run-skill-knowledge-insert-001'
+        }),
+        {
+          skills: (await discoverRuntimeSkills(root)).skills,
+          toolCatalog: {
+            ...toolCatalog,
+            run_subagent: runSubagentTool
+          },
+          model,
+          getApiKey: () => undefined
+        }
+      );
+
+      const result = await tool.execute('tool-call-knowledge-insert-1', {
+        name: 'knowledge-insert',
+        task: 'Confirm the knowledge-insert tool contract.'
+      });
+
+      expect(result.details.summary).toBe('ran skill knowledge-insert');
+      expect(result.details.data?.allowedTools).toEqual(
+        expect.arrayContaining([
+          'find_source_manifest',
+          'read_source_manifest',
+          'prepare_source_resource',
+          'split_resource_blocks',
+          'merge_knowledge_candidates',
+          'audit_extraction_coverage',
+          'run_subagent',
+          'read_artifact',
+          'draft_knowledge_page',
+          'apply_draft_upsert',
+          'lint_wiki'
+        ])
+      );
+    } finally {
+      faux.unregister();
     }
   });
 });

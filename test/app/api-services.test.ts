@@ -259,8 +259,9 @@ describe('app api services', () => {
       const operations = await buildChatOperationsSummaryDto(root);
 
       expect(operations.settings.model).toBe('gpt-5.4');
-      expect(operations.project_env).toMatchObject({
-        source: 'project_root_env'
+      expect(operations.project_env).toEqual({
+        source: 'project_root_env',
+        keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
       });
       expect(operations.project_env.keys).toEqual(expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']));
       expect(operations.runtime_readiness).toMatchObject({

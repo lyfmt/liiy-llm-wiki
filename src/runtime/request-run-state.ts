@@ -42,6 +42,7 @@ export interface CreateRuntimeRunStateInput {
 export function createRuntimeRunState(input: CreateRuntimeRunStateInput): RequestRunState {
   const evidence = uniqueStrings(input.toolOutcomes.flatMap((outcome) => outcome.evidence ?? []));
   const touchedFiles = uniqueStrings(input.toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? []));
+  const derivedStatus = deriveRuntimeStatus(input.toolOutcomes);
   const decisions = input.toolOutcomes.flatMap((outcome) => {
     const reviewReasons = outcome.reviewReasons ?? [];
 
@@ -49,17 +50,16 @@ export function createRuntimeRunState(input: CreateRuntimeRunStateInput): Reques
       return reviewReasons.map((reason) => `${outcome.toolName}: ${reason}`);
     }
 
-    return [`${outcome.toolName}: ${outcome.summary}`];
+    return [`${outcome.toolName}: ${summarizeToolOutcome(outcome)}`];
   });
   const changeset = selectFinalChangeSet(input.toolOutcomes);
-  const needsReview = input.toolOutcomes.some((outcome) => outcome.needsReview);
   const requestRun = createRequestRun({
     run_id: input.runId,
     session_id: input.sessionId ?? null,
     user_request: input.userRequest,
     intent: input.intent,
     plan: input.plan,
-    status: input.status ?? (needsReview ? 'needs_review' : 'done'),
+    status: input.status ?? derivedStatus,
     evidence,
     touched_files: touchedFiles,
     decisions,
@@ -141,9 +141,9 @@ function buildTimelineItems(input: CreateRuntimeRunStateInput, requestRun: Reque
     items.push({
       lane: 'tool',
       title: `Latest tool outcome · ${latestToolOutcome.toolName}`,
-      summary: latestToolOutcome.summary,
+      summary: summarizeToolOutcome(latestToolOutcome),
       meta: [
-        latestToolOutcome.needsReview ? 'needs review' : 'clear',
+        describeToolOutcomeState(latestToolOutcome),
         latestToolOutcome.touchedFiles && latestToolOutcome.touchedFiles.length > 0
           ? `files: ${latestToolOutcome.touchedFiles.join(', ')}`
           : null
@@ -227,7 +227,7 @@ function buildDraftMarkdown(input: CreateRuntimeRunStateInput, requestRun: Reque
 
   const planLines = input.plan.map((step) => `- ${step}`).join('\n');
   const outcomeLines = input.toolOutcomes
-    .map((outcome) => `- ${outcome.toolName}: ${outcome.summary}`)
+    .map((outcome) => `- ${outcome.toolName}: ${summarizeToolOutcome(outcome)}`)
     .join('\n');
 
   return `# Runtime Draft\n\n## Request\n${requestRun.user_request}\n\n## Intent\n${requestRun.intent}\n\n## Plan\n${planLines || '- _none_'}\n\n## Tool Outcomes\n${outcomeLines || '- _none_'}\n`;
@@ -256,6 +256,49 @@ function buildResultMarkdown(input: CreateRuntimeRunStateInput, requestRun: Requ
 function selectPreferredDraftOutcome(toolOutcomes: RuntimeToolOutcome[]): RuntimeToolOutcome | undefined {
   return toolOutcomes.find((outcome) => outcome.toolName === 'draft_knowledge_page' && typeof outcome.resultMarkdown === 'string')
     ?? toolOutcomes.find((outcome) => typeof outcome.resultMarkdown === 'string' && outcome.resultMarkdown.includes('## Proposed Body'));
+}
+
+function summarizeToolOutcome(outcome: RuntimeToolOutcome): string {
+  if (outcome.toolName === 'run_subagent' && isRecord(outcome.data)) {
+    const receipt = outcome.data.receipt;
+
+    if (isRecord(receipt) && typeof receipt.summary === 'string' && receipt.summary.trim().length > 0) {
+      return receipt.summary.trim();
+    }
+  }
+
+  return outcome.summary;
+}
+
+function deriveRuntimeStatus(toolOutcomes: RuntimeToolOutcome[]): RequestRun['status'] {
+  if (toolOutcomes.some((outcome) => isFailedSubagentOutcome(outcome))) {
+    return 'failed';
+  }
+
+  if (toolOutcomes.some((outcome) => outcome.needsReview)) {
+    return 'needs_review';
+  }
+
+  return 'done';
+}
+
+function describeToolOutcomeState(outcome: RuntimeToolOutcome): string {
+  if (isFailedSubagentOutcome(outcome)) {
+    return 'failed';
+  }
+
+  return outcome.needsReview ? 'needs review' : 'clear';
+}
+
+function isFailedSubagentOutcome(outcome: RuntimeToolOutcome): boolean {
+  return outcome.toolName === 'run_subagent'
+    && isRecord(outcome.data)
+    && isRecord(outcome.data.receipt)
+    && outcome.data.receipt.status === 'failed';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function uniqueStrings(values: string[]): string[] {
