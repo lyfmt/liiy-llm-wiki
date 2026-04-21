@@ -143,12 +143,13 @@ export interface ProjectEnvEditor extends ProjectEnvDescriptor {
 
 export interface RuntimeReadinessSummary {
   ready: boolean;
-  status: 'ready' | 'missing_api_key';
+  status: 'ready' | 'missing_api_key' | 'missing_graph_database_url' | 'missing_api_key_and_graph_database_url';
   summary: string;
   issues: string[];
   settings_url: string;
   configured_api_key_env: string;
   project_env_has_configured_key: boolean;
+  project_env_has_graph_database_url: boolean;
   model: string;
   provider: string;
   api: string;

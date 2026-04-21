@@ -708,7 +708,9 @@ export function renderHtmlDocument(title: string, body: string): string {
       .session-list-dot.status-needs_review { background: var(--warning); }
       .session-list-dot.status-failed,
       .session-list-dot.status-rejected,
-      .session-list-dot.status-missing_api_key { background: var(--danger); }
+      .session-list-dot.status-missing_api_key,
+      .session-list-dot.status-missing_graph_database_url,
+      .session-list-dot.status-missing_api_key_and_graph_database_url { background: var(--danger); }
       .session-list-item .run-summary-layout {
         padding: 0.9rem;
       }
@@ -893,7 +895,11 @@ export function renderHtmlDocument(title: string, body: string): string {
       .status-running { color: var(--accent-2); }
       .status-done, .status-ready { color: var(--success); }
       .status-needs_review { color: var(--warning); }
-      .status-failed, .status-rejected, .status-missing_api_key { color: var(--danger); }
+      .status-failed,
+      .status-rejected,
+      .status-missing_api_key,
+      .status-missing_graph_database_url,
+      .status-missing_api_key_and_graph_database_url { color: var(--danger); }
       .tool-trace, .timeline, .agent-feed { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.9rem; }
       .tool-card, .timeline-item, .feed-card {
         background: var(--panel-alt);

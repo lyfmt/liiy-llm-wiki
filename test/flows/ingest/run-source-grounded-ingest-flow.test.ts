@@ -111,16 +111,16 @@ describe('runSourceGroundedIngestFlow', () => {
         sourceId: 'src-001',
         sourcePath: 'raw/accepted/design.md',
         topic: {
-          id: 'topic:patch-first-design--src-001',
-          slug: 'patch-first-design--src-001'
+          id: 'topic:source-src-001',
+          slug: 'source-src-001'
         },
         sections: [
           {
-            id: 'section:patch-first-design--src-001#1',
+            id: 'section:source-src-001#1',
             grounded_evidence_ids: ['evidence:src-001#1', 'evidence:src-001#2']
           },
           {
-            id: 'section:patch-first-design--src-001#2',
+            id: 'section:source-src-001#2',
             grounded_evidence_ids: ['evidence:src-001#3']
           }
         ],
@@ -142,7 +142,7 @@ describe('runSourceGroundedIngestFlow', () => {
         'wiki/index.md',
         'wiki/log.md'
       ]);
-      expect(result.graphTarget).toBe('graph:topic:patch-first-design--src-001');
+      expect(result.graphTarget).toBe('graph:topic:source-src-001');
 
       const runState = await loadRequestRunState(root, 'run-source-grounded-001');
       expect(runState.request_run.status).toBe('done');
@@ -152,16 +152,16 @@ describe('runSourceGroundedIngestFlow', () => {
         'wiki/index.md',
         'wiki/log.md'
       ]);
-      expect(runState.request_run.decisions).toContain('persist graph target graph:topic:patch-first-design--src-001 with 2 sections');
-      expect(runState.result_markdown).toContain('Graph target: graph:topic:patch-first-design--src-001');
+      expect(runState.request_run.decisions).toContain('persist graph target graph:topic:source-src-001 with 2 sections');
+      expect(runState.result_markdown).toContain('Graph target: graph:topic:source-src-001');
       expect(runState.result_markdown).toContain('Sections: 2');
       expect(runState.result_markdown).toContain('raw/accepted/design.md');
-      expect(runState.result_markdown).not.toContain('wiki/topics/patch-first-design--src-001.md');
+      expect(runState.result_markdown).not.toContain('wiki/topics/source-src-001.md');
       expect(runState.events?.at(-1)?.data).toMatchObject({
         graphWrite: {
           status: 'written',
-          graphTarget: 'graph:topic:patch-first-design--src-001',
-          topicId: 'topic:patch-first-design--src-001',
+          graphTarget: 'graph:topic:source-src-001',
+          topicId: 'topic:source-src-001',
           sectionCount: 2
         },
         sourceCoverage: {
@@ -201,8 +201,8 @@ describe('runSourceGroundedIngestFlow', () => {
       vi.mocked(saveSourceGroundedIngest).mockRejectedValueOnce(
         new SourceGroundedIngestConflictError(
           'topic',
-          'topic:patch-first-design--src-001',
-          'Conflicting topic node already exists: topic:patch-first-design--src-001'
+          'topic:source-src-001',
+          'Conflicting topic node already exists: topic:source-src-001'
         )
       );
 
@@ -214,24 +214,24 @@ describe('runSourceGroundedIngestFlow', () => {
 
       expect(result.review).toEqual({
         needs_review: true,
-        reasons: ['Conflicting topic node already exists: topic:patch-first-design--src-001']
+        reasons: ['Conflicting topic node already exists: topic:source-src-001']
       });
 
       const runState = await loadRequestRunState(root, 'run-source-grounded-conflict-001');
       expect(runState.request_run.status).toBe('needs_review');
       expect(runState.request_run.decisions).toContain(
-        'queue review gate: Conflicting topic node already exists: topic:patch-first-design--src-001'
+        'queue review gate: Conflicting topic node already exists: topic:source-src-001'
       );
-      expect(runState.request_run.decisions).toContain('graph conflict on graph:topic:patch-first-design--src-001');
+      expect(runState.request_run.decisions).toContain('graph conflict on graph:topic:source-src-001');
       expect(runState.result_markdown).toContain('Queued for review');
-      expect(runState.result_markdown).toContain('Graph conflict: Conflicting topic node already exists: topic:patch-first-design--src-001');
-      expect(runState.result_markdown).toContain('topic:patch-first-design--src-001');
+      expect(runState.result_markdown).toContain('Graph conflict: Conflicting topic node already exists: topic:source-src-001');
+      expect(runState.result_markdown).toContain('topic:source-src-001');
       expect(runState.events?.at(-1)?.data).toMatchObject({
         graphWrite: {
           status: 'conflict',
-          graphTarget: 'graph:topic:patch-first-design--src-001'
+          graphTarget: 'graph:topic:source-src-001'
         },
-        conflictReason: 'Conflicting topic node already exists: topic:patch-first-design--src-001'
+        conflictReason: 'Conflicting topic node already exists: topic:source-src-001'
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -291,15 +291,74 @@ describe('runSourceGroundedIngestFlow', () => {
       expect(runState.request_run.touched_files).toEqual([]);
       expect(runState.request_run.evidence).toEqual(['raw/accepted/design.md']);
       expect(runState.request_run.result_summary).toContain('graph');
-      expect(runState.request_run.decisions).toContain('persist graph target graph:topic:patch-first-design--src-001 with 1 sections');
-      expect(runState.result_markdown).toContain('Graph target: graph:topic:patch-first-design--src-001');
-      expect(runState.result_markdown).not.toContain('wiki/topics/patch-first-design--src-001.md');
+      expect(runState.request_run.decisions).toContain('persist graph target graph:topic:source-src-001 with 1 sections');
+      expect(runState.result_markdown).toContain('Graph target: graph:topic:source-src-001');
+      expect(runState.result_markdown).not.toContain('wiki/topics/source-src-001.md');
       expect(runState.events?.at(-1)?.data).toMatchObject({
         graphWrite: {
           status: 'written',
-          graphTarget: 'graph:topic:patch-first-design--src-001'
+          graphTarget: 'graph:topic:source-src-001'
         }
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps topic and section ids stable when the source title changes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-source-grounded-flow-stable-ids-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design.md'),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n\n## Workflow\n\nStart with the smallest compatible patch.\n',
+        'utf8'
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-20T00:00:00.000Z'
+        })
+      );
+
+      const firstResult = await runSourceGroundedIngestFlow(root, {
+        runId: 'run-source-grounded-stable-001',
+        userRequest: 'ingest source into graph',
+        sourceId: 'src-001'
+      });
+
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-001',
+          path: 'raw/accepted/design.md',
+          title: 'Patch First Design Revised',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design',
+          imported_at: '2026-04-20T00:00:00.000Z'
+        })
+      );
+
+      const secondResult = await runSourceGroundedIngestFlow(root, {
+        runId: 'run-source-grounded-stable-002',
+        userRequest: 'ingest source into graph',
+        sourceId: 'src-001'
+      });
+
+      expect(firstResult.topic.id).toBe(secondResult.topic.id);
+      expect(firstResult.topic.slug).toBe(secondResult.topic.slug);
+      expect(firstResult.sections.map((section) => section.id)).toEqual(secondResult.sections.map((section) => section.id));
+      expect(firstResult.topic.title).toBe('Patch First Design');
+      expect(secondResult.topic.title).toBe('Patch First Design Revised');
+      expect(firstResult.graphTarget).toBe(secondResult.graphTarget);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

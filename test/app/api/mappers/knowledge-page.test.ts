@@ -177,6 +177,67 @@ describe('buildKnowledgePageResponseDto', () => {
     }
   });
 
+  it('returns rooted graph navigation for taxonomy ancestors, nested sections, and rooted entity/assertion expansions', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-rooted-graph-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/topics/patch-first.md',
+          kind: 'topic',
+          title: 'Patch First',
+          summary: 'Patch-first summary.',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/queries/patch-first-question.md'],
+          status: 'active',
+          updated_at: '2026-04-18T00:00:00.000Z'
+        }),
+        '# Patch First\n\nMarkdown body stays authoritative.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      vi.mocked(graphLoader.loadTopicGraphProjectionInput).mockResolvedValue(
+        buildRootedTopicGraphProjectionInput('patch-first')
+      );
+
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'topic', 'patch-first');
+
+      expect(response.navigation.taxonomy.map((entry) => entry.id)).toEqual([
+        'taxonomy:architecture',
+        'taxonomy:engineering'
+      ]);
+      expect(response.navigation.sections.map((entry) => entry.id)).toEqual([
+        'section:patch-first-overview',
+        'section:patch-first-overview-details'
+      ]);
+      expect(response.navigation.entities.map((entry) => entry.id)).toEqual([
+        'entity:assertion-reader',
+        'entity:evidence-anchor',
+        'entity:graph-reader',
+        'entity:section-reader',
+        'entity:source-index'
+      ]);
+      expect(response.navigation.assertions).toEqual([
+        {
+          id: 'assertion:entity-rooted-claim',
+          title: 'Entity rooted claim',
+          statement: 'Entity rooted assertion.',
+          evidence_count: 1
+        },
+        {
+          id: 'assertion:patch-first-stability',
+          title: 'Patch First Stability',
+          statement: 'Patch-first updates keep the reading path stable.',
+          evidence_count: 1
+        }
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not trigger graph loading for non-topic pages', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-query-mapper-'));
 
@@ -638,6 +699,299 @@ function buildTopicGraphProjectionInput(slug: string) {
         from_kind: 'evidence',
         type: 'derived_from',
         to_id: source.id,
+        to_kind: 'source',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      })
+    ]
+  };
+}
+
+function buildRootedTopicGraphProjectionInput(slug: string) {
+  const base = buildTopicGraphProjectionInput(slug);
+  const taxonomyParent = createGraphNode({
+    id: 'taxonomy:architecture',
+    kind: 'taxonomy',
+    title: 'Architecture',
+    summary: 'Parent taxonomy.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const sectionChild = createGraphNode({
+    id: 'section:patch-first-overview-details',
+    kind: 'section',
+    title: 'Patch First Details',
+    summary: 'Nested section.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entitySection = createGraphNode({
+    id: 'entity:section-reader',
+    kind: 'entity',
+    title: 'Section Reader',
+    summary: 'Section mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entityEvidence = createGraphNode({
+    id: 'entity:evidence-anchor',
+    kind: 'entity',
+    title: 'Evidence Anchor',
+    summary: 'Evidence mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entitySource = createGraphNode({
+    id: 'entity:source-index',
+    kind: 'entity',
+    title: 'Source Index',
+    summary: 'Source mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entityAssertion = createGraphNode({
+    id: 'entity:assertion-reader',
+    kind: 'entity',
+    title: 'Assertion Reader',
+    summary: 'Assertion mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const assertionEntity = createGraphNode({
+    id: 'assertion:entity-rooted-claim',
+    kind: 'assertion',
+    title: 'Entity rooted claim',
+    summary: 'Entity rooted assertion.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      statement: 'Entity rooted assertion.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const evidenceEntity = createGraphNode({
+    id: 'evidence:entity-rooted-proof',
+    kind: 'evidence',
+    title: 'Entity rooted proof',
+    summary: 'Entity evidence.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'source-derived',
+    review_state: 'reviewed',
+    attributes: {
+      locator: 'spec.md#entity-rooted',
+      excerpt: 'Entity rooted excerpt.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const sourceEntity = createGraphNode({
+    id: 'source:entity-spec',
+    kind: 'source',
+    title: 'Entity Spec',
+    summary: 'Entity source.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      path: 'raw/accepted/entity-spec.md'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+
+  const baseTaxonomy = base.nodes.find((node) => node.kind === 'taxonomy')!;
+  const baseSection = base.nodes.find((node) => node.kind === 'section')!;
+  const baseAssertion = base.nodes.find((node) => node.kind === 'assertion')!;
+  const baseEvidence = base.nodes.find((node) => node.kind === 'evidence')!;
+  const baseSource = base.nodes.find((node) => node.kind === 'source')!;
+
+  return {
+    rootId: base.rootId,
+    nodes: [
+      ...base.nodes,
+      taxonomyParent,
+      sectionChild,
+      entitySection,
+      entityEvidence,
+      entitySource,
+      entityAssertion,
+      assertionEntity,
+      evidenceEntity,
+      sourceEntity
+    ],
+    edges: [
+      ...base.edges,
+      createGraphEdge({
+        edge_id: 'edge:part-of:taxonomy-parent',
+        from_id: baseTaxonomy.id,
+        from_kind: 'taxonomy',
+        type: 'part_of',
+        to_id: taxonomyParent.id,
+        to_kind: 'taxonomy',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:part-of:section-child',
+        from_id: sectionChild.id,
+        from_kind: 'section',
+        type: 'part_of',
+        to_id: baseSection.id,
+        to_kind: 'section',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:mentions:section-child',
+        from_id: sectionChild.id,
+        from_kind: 'section',
+        type: 'mentions',
+        to_id: entitySection.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:grounded-by:section-child',
+        from_id: sectionChild.id,
+        from_kind: 'section',
+        type: 'grounded_by',
+        to_id: baseEvidence.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:mentions:evidence',
+        from_id: baseEvidence.id,
+        from_kind: 'evidence',
+        type: 'mentions',
+        to_id: entityEvidence.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:mentions:source',
+        from_id: baseSource.id,
+        from_kind: 'source',
+        type: 'mentions',
+        to_id: entitySource.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:mentions:assertion',
+        from_id: baseAssertion.id,
+        from_kind: 'assertion',
+        type: 'mentions',
+        to_id: entityAssertion.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:about:entity-rooted',
+        from_id: assertionEntity.id,
+        from_kind: 'assertion',
+        type: 'about',
+        to_id: entitySource.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:supported-by:entity-rooted',
+        from_id: assertionEntity.id,
+        from_kind: 'assertion',
+        type: 'supported_by',
+        to_id: evidenceEntity.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:derived-from:entity-rooted',
+        from_id: evidenceEntity.id,
+        from_kind: 'evidence',
+        type: 'derived_from',
+        to_id: sourceEntity.id,
         to_kind: 'source',
         status: 'active',
         confidence: 'asserted',

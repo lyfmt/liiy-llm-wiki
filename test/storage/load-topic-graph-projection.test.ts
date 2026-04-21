@@ -150,20 +150,24 @@ describe('loadTopicGraphProjectionInput', () => {
     );
     expect(result?.nodes).toHaveLength(7);
     expect(result?.edges).toHaveLength(7);
-    expect(client.calls).toEqual([
+    expect(client.calls.slice(0, 7)).toEqual([
       'node:topic:patch-first',
       'outgoing:topic:patch-first',
       'incoming:topic:patch-first',
       'node:taxonomy:engineering',
       'node:entity:graph-reader',
       'node:section:patch-first-overview',
-      'node:assertion:patch-first-stability',
-      'outgoing:section:patch-first-overview',
-      'node:evidence:patch-first-spec',
-      'outgoing:assertion:patch-first-stability',
-      'outgoing:evidence:patch-first-spec',
-      'node:source:patch-first-spec'
+      'node:assertion:patch-first-stability'
     ]);
+    expect(client.calls).toEqual(
+      expect.arrayContaining([
+        'outgoing:section:patch-first-overview',
+        'node:evidence:patch-first-spec',
+        'outgoing:assertion:patch-first-stability',
+        'outgoing:evidence:patch-first-spec',
+        'node:source:patch-first-spec'
+      ])
+    );
   });
 
   it('returns null when the topic root is missing', async () => {
@@ -171,6 +175,333 @@ describe('loadTopicGraphProjectionInput', () => {
 
     await expect(loadTopicGraphProjectionInput(client, 'missing')).resolves.toBeNull();
     expect(client.calls).toEqual(['node:topic:missing']);
+  });
+
+  it('recursively loads the rooted taxonomy chain, section tree, mentions, assertions, evidence, and sources', async () => {
+    const taxonomyParent = createNode({
+      id: 'taxonomy:engineering',
+      kind: 'taxonomy',
+      title: 'Engineering'
+    });
+    const taxonomyChild = createNode({
+      id: 'taxonomy:platform',
+      kind: 'taxonomy',
+      title: 'Platform'
+    });
+    const topic = createNode({
+      id: 'topic:graph-projection',
+      kind: 'topic',
+      title: 'Graph Projection'
+    });
+    const sectionParent = createNode({
+      id: 'section:projection-overview',
+      kind: 'section',
+      title: 'Projection Overview'
+    });
+    const sectionChild = createNode({
+      id: 'section:projection-overview-details',
+      kind: 'section',
+      title: 'Projection Details'
+    });
+    const entityTopic = createNode({
+      id: 'entity:graph-reader',
+      kind: 'entity',
+      title: 'Graph Reader'
+    });
+    const entitySection = createNode({
+      id: 'entity:section-reader',
+      kind: 'entity',
+      title: 'Section Reader'
+    });
+    const entityEvidence = createNode({
+      id: 'entity:evidence-anchor',
+      kind: 'entity',
+      title: 'Evidence Anchor'
+    });
+    const entitySource = createNode({
+      id: 'entity:source-index',
+      kind: 'entity',
+      title: 'Source Index'
+    });
+    const entityAssertion = createNode({
+      id: 'entity:assertion-reader',
+      kind: 'entity',
+      title: 'Assertion Reader'
+    });
+    const assertionSection = createNode({
+      id: 'assertion:section-claim',
+      kind: 'assertion',
+      title: 'Section claim'
+    });
+    const assertionEntity = createNode({
+      id: 'assertion:entity-claim',
+      kind: 'assertion',
+      title: 'Entity claim'
+    });
+    const evidenceGrounding = createNode({
+      id: 'evidence:section-grounding',
+      kind: 'evidence',
+      title: 'Section grounding',
+      provenance: 'source-derived',
+      attributes: {
+        locator: 'projection.md#section-grounding',
+        excerpt: 'Section grounding anchor.'
+      }
+    });
+    const evidenceSectionAssertion = createNode({
+      id: 'evidence:section-claim-proof',
+      kind: 'evidence',
+      title: 'Section claim proof',
+      provenance: 'source-derived',
+      attributes: {
+        locator: 'projection.md#section-claim',
+        excerpt: 'Section assertion anchor.'
+      }
+    });
+    const evidenceEntityAssertion = createNode({
+      id: 'evidence:entity-claim-proof',
+      kind: 'evidence',
+      title: 'Entity claim proof',
+      provenance: 'source-derived',
+      attributes: {
+        locator: 'projection.md#entity-claim',
+        excerpt: 'Entity assertion anchor.'
+      }
+    });
+    const sourceShared = createNode({
+      id: 'source:projection-spec',
+      kind: 'source',
+      title: 'Projection Spec'
+    });
+    const sourceEntity = createNode({
+      id: 'source:entity-spec',
+      kind: 'source',
+      title: 'Entity Spec'
+    });
+    const unrelatedTopic = createNode({
+      id: 'topic:unrelated',
+      kind: 'topic',
+      title: 'Unrelated'
+    });
+
+    const client = createFakeGraphClient({
+      nodes: [
+        taxonomyParent,
+        taxonomyChild,
+        topic,
+        sectionParent,
+        sectionChild,
+        entityTopic,
+        entitySection,
+        entityEvidence,
+        entitySource,
+        entityAssertion,
+        assertionSection,
+        assertionEntity,
+        evidenceGrounding,
+        evidenceSectionAssertion,
+        evidenceEntityAssertion,
+        sourceShared,
+        sourceEntity,
+        unrelatedTopic
+      ],
+      edges: [
+        createEdge({
+          edge_id: 'edge:belongs-to-taxonomy:topic-platform',
+          from_id: topic.id,
+          from_kind: 'topic',
+          type: 'belongs_to_taxonomy',
+          to_id: taxonomyChild.id,
+          to_kind: 'taxonomy'
+        }),
+        createEdge({
+          edge_id: 'edge:part-of:taxonomy-platform-engineering',
+          from_id: taxonomyChild.id,
+          from_kind: 'taxonomy',
+          type: 'part_of',
+          to_id: taxonomyParent.id,
+          to_kind: 'taxonomy'
+        }),
+        createEdge({
+          edge_id: 'edge:part-of:section-parent-topic',
+          from_id: sectionParent.id,
+          from_kind: 'section',
+          type: 'part_of',
+          to_id: topic.id,
+          to_kind: 'topic'
+        }),
+        createEdge({
+          edge_id: 'edge:part-of:section-child-parent',
+          from_id: sectionChild.id,
+          from_kind: 'section',
+          type: 'part_of',
+          to_id: sectionParent.id,
+          to_kind: 'section'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:topic-entity',
+          from_id: topic.id,
+          from_kind: 'topic',
+          type: 'mentions',
+          to_id: entityTopic.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:section-entity',
+          from_id: sectionChild.id,
+          from_kind: 'section',
+          type: 'mentions',
+          to_id: entitySection.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:grounded-by:section-evidence',
+          from_id: sectionChild.id,
+          from_kind: 'section',
+          type: 'grounded_by',
+          to_id: evidenceGrounding.id,
+          to_kind: 'evidence'
+        }),
+        createEdge({
+          edge_id: 'edge:derived-from:evidence-shared-source',
+          from_id: evidenceGrounding.id,
+          from_kind: 'evidence',
+          type: 'derived_from',
+          to_id: sourceShared.id,
+          to_kind: 'source'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:evidence-entity',
+          from_id: evidenceGrounding.id,
+          from_kind: 'evidence',
+          type: 'mentions',
+          to_id: entityEvidence.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:source-entity',
+          from_id: sourceShared.id,
+          from_kind: 'source',
+          type: 'mentions',
+          to_id: entitySource.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:about:assertion-section',
+          from_id: assertionSection.id,
+          from_kind: 'assertion',
+          type: 'about',
+          to_id: sectionChild.id,
+          to_kind: 'section'
+        }),
+        createEdge({
+          edge_id: 'edge:supported-by:assertion-section',
+          from_id: assertionSection.id,
+          from_kind: 'assertion',
+          type: 'supported_by',
+          to_id: evidenceSectionAssertion.id,
+          to_kind: 'evidence'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:assertion-entity',
+          from_id: assertionSection.id,
+          from_kind: 'assertion',
+          type: 'mentions',
+          to_id: entityAssertion.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:derived-from:assertion-section-source',
+          from_id: evidenceSectionAssertion.id,
+          from_kind: 'evidence',
+          type: 'derived_from',
+          to_id: sourceShared.id,
+          to_kind: 'source'
+        }),
+        createEdge({
+          edge_id: 'edge:about:assertion-entity',
+          from_id: assertionEntity.id,
+          from_kind: 'assertion',
+          type: 'about',
+          to_id: entitySource.id,
+          to_kind: 'entity'
+        }),
+        createEdge({
+          edge_id: 'edge:supported-by:assertion-entity',
+          from_id: assertionEntity.id,
+          from_kind: 'assertion',
+          type: 'supported_by',
+          to_id: evidenceEntityAssertion.id,
+          to_kind: 'evidence'
+        }),
+        createEdge({
+          edge_id: 'edge:derived-from:assertion-entity-source',
+          from_id: evidenceEntityAssertion.id,
+          from_kind: 'evidence',
+          type: 'derived_from',
+          to_id: sourceEntity.id,
+          to_kind: 'source'
+        }),
+        createEdge({
+          edge_id: 'edge:mentions:unrelated-topic',
+          from_id: unrelatedTopic.id,
+          from_kind: 'topic',
+          type: 'mentions',
+          to_id: entityTopic.id,
+          to_kind: 'entity'
+        })
+      ]
+    });
+
+    const result = await loadTopicGraphProjectionInput(client, 'graph-projection');
+
+    expect(result?.rootId).toBe(topic.id);
+    expect(result?.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining([
+        topic.id,
+        taxonomyParent.id,
+        taxonomyChild.id,
+        sectionParent.id,
+        sectionChild.id,
+        entityTopic.id,
+        entitySection.id,
+        entityEvidence.id,
+        entitySource.id,
+        entityAssertion.id,
+        assertionSection.id,
+        assertionEntity.id,
+        evidenceGrounding.id,
+        evidenceSectionAssertion.id,
+        evidenceEntityAssertion.id,
+        sourceShared.id,
+        sourceEntity.id
+      ])
+    );
+    expect(result?.nodes.map((node) => node.id)).not.toContain(unrelatedTopic.id);
+    expect(result?.edges.map((edge) => edge.edge_id)).toEqual(
+      expect.arrayContaining([
+        'edge:belongs-to-taxonomy:topic-platform',
+        'edge:part-of:taxonomy-platform-engineering',
+        'edge:part-of:section-parent-topic',
+        'edge:part-of:section-child-parent',
+        'edge:mentions:topic-entity',
+        'edge:mentions:section-entity',
+        'edge:grounded-by:section-evidence',
+        'edge:derived-from:evidence-shared-source',
+        'edge:mentions:evidence-entity',
+        'edge:mentions:source-entity',
+        'edge:about:assertion-section',
+        'edge:supported-by:assertion-section',
+        'edge:mentions:assertion-entity',
+        'edge:derived-from:assertion-section-source',
+        'edge:about:assertion-entity',
+        'edge:supported-by:assertion-entity',
+        'edge:derived-from:assertion-entity-source'
+      ])
+    );
+    expect(result?.edges.map((edge) => edge.edge_id)).not.toContain('edge:mentions:unrelated-topic');
+    expect(result?.nodes).toHaveLength(17);
+    expect(result?.edges).toHaveLength(17);
   });
 });
 

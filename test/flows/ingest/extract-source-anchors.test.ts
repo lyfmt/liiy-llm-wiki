@@ -45,7 +45,7 @@ Stable anchors matter.
       {
         id: 'evidence:src-001#3',
         title: 'Trade-offs',
-        locator: 'patterns.md#trade-offs:p1',
+        locator: 'patterns.md#introduction/trade-offs:p1',
         excerpt: 'It adds discipline.',
         order: 3,
         heading_path: ['Introduction', 'Trade-offs']
@@ -53,7 +53,7 @@ Stable anchors matter.
       {
         id: 'evidence:src-001#4',
         title: 'Deep Dive',
-        locator: 'patterns.md#deep-dive:p1',
+        locator: 'patterns.md#introduction/trade-offs/deep-dive:p1',
         excerpt: 'Stable anchors matter.',
         order: 4,
         heading_path: ['Introduction', 'Trade-offs', 'Deep Dive']
@@ -314,7 +314,7 @@ Mid text.
       {
         id: 'evidence:src-010#1',
         title: 'Deep',
-        locator: 'headings.md#deep:p1',
+        locator: 'headings.md#top/deep:p1',
         excerpt: 'Deep text.',
         order: 1,
         heading_path: ['Top', 'Deep']
@@ -322,10 +322,49 @@ Mid text.
       {
         id: 'evidence:src-010#2',
         title: 'Mid',
-        locator: 'headings.md#mid:p1',
+        locator: 'headings.md#top/mid:p1',
         excerpt: 'Mid text.',
         order: 2,
         heading_path: ['Top', 'Mid']
+      }
+    ]);
+  });
+
+  it('includes the full heading path in the locator so repeated leaf headings stay distinct', () => {
+    const result = extractSourceAnchors({
+      sourceId: 'src-016',
+      sourcePath: 'raw/accepted/repeated-overview.md',
+      markdown: `
+# Product
+
+## Overview
+
+Product overview.
+
+# Operations
+
+## Overview
+
+Operations overview.
+`
+    });
+
+    expect(result).toEqual([
+      {
+        id: 'evidence:src-016#1',
+        title: 'Overview',
+        locator: 'repeated-overview.md#product/overview:p1',
+        excerpt: 'Product overview.',
+        order: 1,
+        heading_path: ['Product', 'Overview']
+      },
+      {
+        id: 'evidence:src-016#2',
+        title: 'Overview',
+        locator: 'repeated-overview.md#operations/overview:p1',
+        excerpt: 'Operations overview.',
+        order: 2,
+        heading_path: ['Operations', 'Overview']
       }
     ]);
   });

@@ -221,7 +221,7 @@ describe('createWebServer', () => {
         }>(`${baseUrl}/api/pages/topic/patch-first`);
         const wikiIndex = await fetchJson<{ topics: string[] }>(`${baseUrl}/api/wiki/index`);
         const wikiPage = await fetchJson<{ page: { title: string; tags: string[]; summary: string }; navigation: { backlinks: unknown[] } }>(`${baseUrl}/api/pages/topic/patch-first`);
-        const chatOperations = await fetchJson<{ settings: { model: string }; project_env: { source: 'project_root_env'; keys: string[] }; runtime_readiness: { status: string; ready: boolean; configured_api_key_env: string; project_env_has_configured_key: boolean; summary: string }; recent_runs: Array<{ run_id: string }>; suggested_requests: string[] }>(`${baseUrl}/api/chat/operations`);
+        const chatOperations = await fetchJson<{ settings: { model: string }; project_env: { source: 'project_root_env'; keys: string[] }; runtime_readiness: { status: string; ready: boolean; configured_api_key_env: string; project_env_has_configured_key: boolean; project_env_has_graph_database_url: boolean; summary: string }; recent_runs: Array<{ run_id: string }>; suggested_requests: string[] }>(`${baseUrl}/api/chat/operations`);
         const chatModels = await fetchJson<{ default_provider: string; providers: Array<{ id: string; models: Array<{ id: string; provider: string; selected: boolean; built_in: boolean; api: string; base_url: string; api_key_env?: string; reasoning: boolean; context_window: number; max_tokens: number }> }>; selected: { provider: string; model: string; api: string; base_url: string; api_key_env?: string; reasoning?: boolean; context_window?: number; max_tokens?: number } }>(`${baseUrl}/api/chat/models`);
         const sources = await fetchJson<Array<{ id: string; title: string; type: string; status: string; raw_path: string; imported_at: string; tags: string[]; has_notes: boolean; links: { api: string } }>>(`${baseUrl}/api/sources`);
         const runs = await fetchJson<Array<{ run_id: string; has_changeset: boolean }>>(`${baseUrl}/api/runs`);
@@ -281,7 +281,8 @@ describe('createWebServer', () => {
           ready: false,
           status: 'missing_api_key',
           configured_api_key_env: 'RUNTIME_API_KEY',
-          project_env_has_configured_key: false
+          project_env_has_configured_key: false,
+          project_env_has_graph_database_url: true
         });
         expect(chatOperations.body.runtime_readiness.summary).toContain('Runtime is blocked');
         expect(chatOperations.body.recent_runs).toEqual([
@@ -431,7 +432,8 @@ describe('createWebServer', () => {
             api: 'anthropic-messages',
             base_url: 'http://runtime.example.invalid/v1',
             api_key_env: 'RUNTIME_API_KEY',
-            project_env_contents: 'RUNTIME_API_KEY=web-updated-key\nMODEL_NOTES="operator ready"\n',
+            project_env_contents:
+              'RUNTIME_API_KEY=web-updated-key\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\nMODEL_NOTES="operator ready"\n',
             reasoning: true,
             context_window: 256000,
             max_tokens: 32768,
@@ -471,13 +473,25 @@ describe('createWebServer', () => {
           expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL'])
         );
         expect(updatedSettings.body.project_env.contents).toContain('RUNTIME_API_KEY=web-updated-key');
+        expect(updatedSettings.body.project_env.contents).toContain(
+          'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy'
+        );
         expect(updatedSettings.body.project_env.contents).toContain('MODEL_NOTES="operator ready"');
         expect(await readFile(path.join(root, '.env'), 'utf8')).toContain('RUNTIME_API_KEY=web-updated-key');
-        const chatOperationsReady = await fetchJson<{ runtime_readiness: { status: string; ready: boolean; project_env_has_configured_key: boolean; summary: string } }>(`${baseUrl}/api/chat/operations`);
+        const chatOperationsReady = await fetchJson<{
+          runtime_readiness: {
+            status: string;
+            ready: boolean;
+            project_env_has_configured_key: boolean;
+            project_env_has_graph_database_url: boolean;
+            summary: string;
+          };
+        }>(`${baseUrl}/api/chat/operations`);
         expect(chatOperationsReady.body.runtime_readiness).toMatchObject({
           ready: true,
           status: 'ready',
-          project_env_has_configured_key: true
+          project_env_has_configured_key: true,
+          project_env_has_graph_database_url: true
         });
         expect(chatOperationsReady.body.runtime_readiness.summary).toContain('Runtime is ready');
         expect(chatRun.body.run_id).toBe(chatRun.body.runId);
@@ -1085,6 +1099,57 @@ describe('createWebServer', () => {
             review_task_id: null
           }
         ]);
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports chat operations readiness as blocked when only GRAPH_DATABASE_URL is missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-runtime-key\n', 'utf8');
+
+      const server = createWebServer(root);
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const chatOperations = await fetchJson<{
+          runtime_readiness: {
+            ready: boolean;
+            status: string;
+            configured_api_key_env: string;
+            project_env_has_configured_key: boolean;
+            project_env_has_graph_database_url: boolean;
+            summary: string;
+            issues: string[];
+          };
+        }>(`${baseUrl}/api/chat/operations`);
+
+        expect(chatOperations.status).toBe(200);
+        expect(chatOperations.body.runtime_readiness).toMatchObject({
+          ready: false,
+          status: 'missing_graph_database_url',
+          configured_api_key_env: 'RUNTIME_API_KEY',
+          project_env_has_configured_key: true,
+          project_env_has_graph_database_url: false
+        });
+        expect(chatOperations.body.runtime_readiness.issues).toEqual(['Project .env is missing GRAPH_DATABASE_URL.']);
+        expect(chatOperations.body.runtime_readiness.summary).toBe(
+          'Runtime is blocked until GRAPH_DATABASE_URL is set in the project .env.'
+        );
       } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }

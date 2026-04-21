@@ -15,7 +15,7 @@ export async function loadTopicGraphProjectionInput(
   slug: string
 ): Promise<TopicGraphProjectionInput | null> {
   const rootId = `topic:${slug}`;
-  const root = await loadGraphNode(client, rootId);
+  const root = await loadNodeIfPresent(client, rootId);
 
   if (!root) {
     return null;
@@ -23,89 +23,37 @@ export async function loadTopicGraphProjectionInput(
 
   const nodes = new Map<string, GraphNode>([[root.id, root]]);
   const edges = new Map<string, GraphEdge>();
+  const pendingIds = [root.id];
+  const visitedIds = new Set<string>();
 
-  const rootOutgoingEdges = (await listOutgoingGraphEdges(client, root.id)).filter(
-    (edge) =>
-      edge.from_id === root.id &&
-      edge.from_kind === 'topic' &&
-      ['belongs_to_taxonomy', 'mentions'].includes(edge.type)
-  );
-  const rootIncomingEdges = (await listIncomingGraphEdges(client, root.id)).filter(
-    (edge) =>
-      edge.to_id === root.id &&
-      ((edge.type === 'part_of' && edge.from_kind === 'section') ||
-        (edge.type === 'about' && edge.from_kind === 'assertion'))
-  );
+  while (pendingIds.length > 0) {
+    const currentId = pendingIds.shift()!;
 
-  for (const edge of [...rootOutgoingEdges, ...rootIncomingEdges]) {
-    edges.set(edge.edge_id, edge);
-  }
-
-  for (const edge of rootOutgoingEdges) {
-    await addNodeIfPresent(client, edge.to_id, nodes);
-  }
-
-  const sectionIds: string[] = [];
-  const assertionIds: string[] = [];
-
-  for (const edge of rootIncomingEdges) {
-    await addNodeIfPresent(client, edge.from_id, nodes);
-
-    if (edge.type === 'part_of' && edge.from_kind === 'section') {
-      sectionIds.push(edge.from_id);
+    if (visitedIds.has(currentId)) {
+      continue;
     }
 
-    if (edge.type === 'about' && edge.from_kind === 'assertion') {
-      assertionIds.push(edge.from_id);
+    visitedIds.add(currentId);
+
+    const currentNode = nodes.get(currentId) ?? (await addNodeIfPresent(client, currentId, nodes));
+
+    if (!currentNode) {
+      continue;
     }
-  }
 
-  const evidenceIds: string[] = [];
+    const relatedEdges = await listTraversalEdges(client, currentNode);
 
-  for (const sectionId of sectionIds) {
-    const sectionOutgoingEdges = (await listOutgoingGraphEdges(client, sectionId)).filter(
-      (edge) =>
-        edge.from_id === sectionId &&
-        edge.from_kind === 'section' &&
-        edge.type === 'grounded_by' &&
-        edge.to_kind === 'evidence'
-    );
+    for (const edge of relatedEdges) {
+      if (!edges.has(edge.edge_id)) {
+        edges.set(edge.edge_id, edge);
+      }
 
-    for (const edge of sectionOutgoingEdges) {
-      edges.set(edge.edge_id, edge);
-      evidenceIds.push(edge.to_id);
-      await addNodeIfPresent(client, edge.to_id, nodes);
-    }
-  }
+      const relatedId = edge.from_id === currentNode.id ? edge.to_id : edge.from_id;
+      const relatedNode = await addNodeIfPresent(client, relatedId, nodes);
 
-  for (const assertionId of assertionIds) {
-    const assertionOutgoingEdges = (await listOutgoingGraphEdges(client, assertionId)).filter(
-      (edge) =>
-        edge.from_id === assertionId &&
-        edge.from_kind === 'assertion' &&
-        edge.type === 'supported_by' &&
-        edge.to_kind === 'evidence'
-    );
-
-    for (const edge of assertionOutgoingEdges) {
-      edges.set(edge.edge_id, edge);
-      evidenceIds.push(edge.to_id);
-      await addNodeIfPresent(client, edge.to_id, nodes);
-    }
-  }
-
-  for (const evidenceId of [...new Set(evidenceIds)]) {
-    const evidenceOutgoingEdges = (await listOutgoingGraphEdges(client, evidenceId)).filter(
-      (edge) =>
-        edge.from_id === evidenceId &&
-        edge.from_kind === 'evidence' &&
-        edge.type === 'derived_from' &&
-        edge.to_kind === 'source'
-    );
-
-    for (const edge of evidenceOutgoingEdges) {
-      edges.set(edge.edge_id, edge);
-      await addNodeIfPresent(client, edge.to_id, nodes);
+      if (relatedNode && !visitedIds.has(relatedNode.id)) {
+        pendingIds.push(relatedNode.id);
+      }
     }
   }
 
@@ -116,18 +64,109 @@ export async function loadTopicGraphProjectionInput(
   };
 }
 
+async function listTraversalEdges(client: GraphDatabaseClient, node: GraphNode): Promise<GraphEdge[]> {
+  const traversed: GraphEdge[] = [];
+
+  if (usesOutgoingTraversal(node.kind)) {
+    const outgoingEdges = await listOutgoingGraphEdges(client, node.id);
+    traversed.push(...outgoingEdges.filter((edge) => isOutgoingTraversalEdge(node, edge)));
+  }
+
+  if (usesIncomingTraversal(node.kind)) {
+    const incomingEdges = await listIncomingGraphEdges(client, node.id);
+    traversed.push(...incomingEdges.filter((edge) => isIncomingTraversalEdge(node, edge)));
+  }
+
+  return traversed;
+}
+
+function usesOutgoingTraversal(kind: GraphNode['kind']): boolean {
+  return ['topic', 'taxonomy', 'section', 'assertion', 'evidence', 'source'].includes(kind);
+}
+
+function usesIncomingTraversal(kind: GraphNode['kind']): boolean {
+  return ['topic', 'section', 'entity'].includes(kind);
+}
+
+function isOutgoingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
+  if (edge.from_id !== node.id || edge.from_kind !== node.kind) {
+    return false;
+  }
+
+  switch (node.kind) {
+    case 'topic':
+      return (
+        (edge.type === 'belongs_to_taxonomy' && edge.to_kind === 'taxonomy') ||
+        (edge.type === 'mentions' && edge.to_kind === 'entity')
+      );
+    case 'taxonomy':
+      return edge.type === 'part_of' && edge.to_kind === 'taxonomy';
+    case 'section':
+      return (
+        (edge.type === 'grounded_by' && edge.to_kind === 'evidence') ||
+        (edge.type === 'mentions' && edge.to_kind === 'entity')
+      );
+    case 'assertion':
+      return (
+        (edge.type === 'supported_by' && edge.to_kind === 'evidence') ||
+        (edge.type === 'mentions' && edge.to_kind === 'entity')
+      );
+    case 'evidence':
+      return (
+        (edge.type === 'derived_from' && edge.to_kind === 'source') ||
+        (edge.type === 'mentions' && edge.to_kind === 'entity')
+      );
+    case 'source':
+      return edge.type === 'mentions' && edge.to_kind === 'entity';
+    default:
+      return false;
+  }
+}
+
+function isIncomingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
+  if (edge.to_id !== node.id || edge.to_kind !== node.kind) {
+    return false;
+  }
+
+  switch (node.kind) {
+    case 'topic':
+      return (
+        (edge.type === 'part_of' && edge.from_kind === 'section') ||
+        (edge.type === 'about' && edge.from_kind === 'assertion')
+      );
+    case 'section':
+      return (
+        (edge.type === 'part_of' && edge.from_kind === 'section') ||
+        (edge.type === 'about' && edge.from_kind === 'assertion')
+      );
+    case 'entity':
+      return edge.type === 'about' && edge.from_kind === 'assertion';
+    default:
+      return false;
+  }
+}
+
 async function addNodeIfPresent(
   client: GraphDatabaseClient,
   id: string,
   nodes: Map<string, GraphNode>
-): Promise<void> {
-  if (nodes.has(id)) {
-    return;
+): Promise<GraphNode | null> {
+  const existing = nodes.get(id);
+
+  if (existing) {
+    return existing;
   }
 
-  const node = await loadGraphNode(client, id);
+  const node = await loadNodeIfPresent(client, id);
 
   if (node) {
     nodes.set(node.id, node);
+    return node;
   }
+
+  return null;
+}
+
+async function loadNodeIfPresent(client: GraphDatabaseClient, id: string): Promise<GraphNode | null> {
+  return loadGraphNode(client, id);
 }

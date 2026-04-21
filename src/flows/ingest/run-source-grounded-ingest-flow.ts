@@ -155,7 +155,7 @@ function buildSourceGroundedIngest(
   anchors: SourceGroundedIngest['evidence'],
   rawBody: string
 ): SourceGroundedIngest {
-  const topicSlug = `${normalizeTitleToSlug(manifest.title)}--${manifest.id}`;
+  const topicSlug = buildStableSourceTopicSlug(manifest.id);
   const sections = buildSections(topicSlug, manifest.title, anchors);
 
   return createSourceGroundedIngest({
@@ -342,6 +342,10 @@ function buildGraphTarget(slug: string): string {
   return `graph:topic:${slug}`;
 }
 
+function buildStableSourceTopicSlug(sourceId: string): string {
+  return `source-${sourceId}`;
+}
+
 function deriveSectionTitle(anchor: SourceGroundedIngest['evidence'][number] | undefined, sourceTitle: string): string {
   const title = anchor?.heading_path.at(-1) ?? '';
 
@@ -358,15 +362,4 @@ function summarizeText(value: string, maxLength: number): string {
     .trim();
 
   return summary.slice(0, maxLength).trim() || '_empty_';
-}
-
-function normalizeTitleToSlug(value: string): string {
-  const normalized = value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return normalized || 'source';
 }

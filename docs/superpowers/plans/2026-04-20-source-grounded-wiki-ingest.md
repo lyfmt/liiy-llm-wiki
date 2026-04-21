@@ -49,7 +49,7 @@
 
 本计划固定以下确定性规则：
 
-- `topic.slug = <normalized-source-title>--<sourceId>`
+- `topic.slug = source-<sourceId>`
 - `topic.id = topic:<topic.slug>`
 - `section.id = section:<topic.slug>#<section-order>`
 - `evidence.id = evidence:<sourceId>#<anchor-order>`
@@ -117,13 +117,13 @@ it('normalizes a source-grounded ingest payload', () => {
     sourceId: 'src-001',
     sourcePath: 'raw/accepted/patterns.md',
     topic: {
-      slug: 'design-patterns',
+      slug: 'source-src-001',
       title: 'Design Patterns',
       summary: 'Pattern overview.'
     },
     sections: [
       {
-        id: 'section:design-patterns-intro',
+        id: 'section:source-src-001#1',
         title: 'Introduction',
         summary: 'Intro section.',
         grounded_evidence_ids: ['evidence:src-001#h1-p1']
@@ -141,7 +141,7 @@ it('normalizes a source-grounded ingest payload', () => {
     ]
   });
 
-  expect(ingest.topic.id).toBe('topic:design-patterns');
+  expect(ingest.topic.id).toBe('topic:source-src-001');
   expect(ingest.sections[0]?.grounded_evidence_ids).toEqual(['evidence:src-001#h1-p1']);
 });
 ```
@@ -220,7 +220,7 @@ expect(result[0]).toMatchObject({
 - 输入：`sourceId`、`sourcePath`、raw markdown
 - 输出：ordered evidence anchors
 - 第一条切片只需支持 markdown 标题和普通段落
-- `locator` 规则固定为：`<basename>#<heading-slug>:p<paragraph-index>`
+- `locator` 规则固定为：`<basename>#<full-heading-path-slug>:p<paragraph-index>`
 
 - [ ] **步骤 4：运行测试验证通过**
 
@@ -261,8 +261,8 @@ git commit -m "feat(ingest): extract ordered source anchors"
 ```ts
 expect(savedNodeIds).toEqual(
   expect.arrayContaining([
-    'topic:design-patterns',
-    'section:design-patterns-intro',
+    'topic:source-src-001',
+    'section:source-src-001#1',
     'evidence:src-001#1',
     'source:src-001'
   ])

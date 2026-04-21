@@ -35,7 +35,7 @@ export function extractSourceAnchors(input: ExtractSourceAnchorsInput): SourceGr
 
     const currentHeadingPath = headingStack.length === 0 ? [ROOT_HEADING] : headingStack.map((entry) => entry.title);
     const title = currentHeadingPath[currentHeadingPath.length - 1] ?? ROOT_HEADING;
-    const headingSlug = slugifyHeading(title) || 'document';
+    const headingSlug = slugifyHeadingPath(currentHeadingPath);
     const order = anchors.length + 1;
 
     paragraphIndex += 1;
@@ -269,6 +269,14 @@ function slugifyHeading(value: string): string {
     .toLowerCase()
     .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function slugifyHeadingPath(headingPath: string[]): string {
+  const normalized = headingPath
+    .map((segment) => slugifyHeading(segment) || 'document')
+    .filter((segment) => segment !== '');
+
+  return normalized.join('/') || 'document';
 }
 
 function requireNonEmptyString(value: string | undefined, fieldName: string): string {

@@ -19,20 +19,20 @@ describe('createIngestSourceToGraphTool', () => {
       sourceId: 'src-001',
       sourcePath: 'raw/accepted/design.md',
       topic: {
-        id: 'topic:patch-first-design--src-001',
-        slug: 'patch-first-design--src-001',
+        id: 'topic:source-src-001',
+        slug: 'source-src-001',
         title: 'Patch First Design',
         summary: 'Patch-first overview.'
       },
       sections: [
         {
-          id: 'section:patch-first-design--src-001#1',
+          id: 'section:source-src-001#1',
           title: 'Patch First',
           summary: 'Overview section.',
           grounded_evidence_ids: ['evidence:src-001#1']
         },
         {
-          id: 'section:patch-first-design--src-001#2',
+          id: 'section:source-src-001#2',
           title: 'Workflow',
           summary: 'Workflow section.',
           grounded_evidence_ids: ['evidence:src-001#2']
@@ -50,7 +50,7 @@ describe('createIngestSourceToGraphTool', () => {
         {
           id: 'evidence:src-001#2',
           title: 'Workflow',
-          locator: 'design.md#workflow:p1',
+          locator: 'design.md#patch-first/workflow:p1',
           excerpt: 'Start with the smallest compatible patch.',
           order: 2,
           heading_path: ['Patch First', 'Workflow']
@@ -62,10 +62,10 @@ describe('createIngestSourceToGraphTool', () => {
         uncovered_anchor_ids: [],
         coverage_status: 'complete'
       },
-      graphTarget: 'graph:topic:patch-first-design--src-001',
+      graphTarget: 'graph:topic:source-src-001',
       changeSet: {
         target_files: ['wiki/sources/src-001.md', 'wiki/index.md', 'wiki/log.md'],
-        patch_summary: 'persisted source-grounded graph for topic:patch-first-design--src-001',
+        patch_summary: 'persisted source-grounded graph for topic:source-src-001',
         rationale: 'ingest source src-001',
         source_refs: ['raw/accepted/design.md'],
         risk_level: 'low',
@@ -98,14 +98,14 @@ describe('createIngestSourceToGraphTool', () => {
     expect(result.details.summary).toContain('generated topic');
     expect(result.details.summary).toContain('2 sections');
     expect(result.details.evidence).toEqual(['raw/accepted/design.md']);
-    expect(result.details.resultMarkdown).toContain('Graph target: graph:topic:patch-first-design--src-001');
+    expect(result.details.resultMarkdown).toContain('Graph target: graph:topic:source-src-001');
     expect(result.details.resultMarkdown).toContain('Sections: 2');
     expect(result.details.resultMarkdown).toContain('Source: raw/accepted/design.md');
     expect(result.details.resultMarkdown).toContain('Coverage status: complete');
     expect(result.details.resultMarkdown).toContain('Covered anchors: 2/2');
-    expect(result.details.resultMarkdown).not.toContain('wiki/topics/patch-first-design--src-001.md');
+    expect(result.details.resultMarkdown).not.toContain('wiki/topics/source-src-001.md');
     expect(result.details.data).toMatchObject({
-      graphTarget: 'graph:topic:patch-first-design--src-001',
+      graphTarget: 'graph:topic:source-src-001',
       sourceCoverage: {
         total_anchor_count: 2,
         covered_anchor_count: 2,
@@ -120,14 +120,14 @@ describe('createIngestSourceToGraphTool', () => {
       sourceId: 'src-001',
       sourcePath: 'raw/accepted/design.md',
       topic: {
-        id: 'topic:patch-first-design--src-001',
-        slug: 'patch-first-design--src-001',
+        id: 'topic:source-src-001',
+        slug: 'source-src-001',
         title: 'Patch First Design',
         summary: 'Patch-first overview.'
       },
       sections: [
         {
-          id: 'section:patch-first-design--src-001#1',
+          id: 'section:source-src-001#1',
           title: 'Patch First',
           summary: 'Overview section.',
           grounded_evidence_ids: ['evidence:src-001#1']
@@ -149,7 +149,7 @@ describe('createIngestSourceToGraphTool', () => {
         uncovered_anchor_ids: ['evidence:src-001#2'],
         coverage_status: 'partial'
       },
-      graphTarget: 'graph:topic:patch-first-design--src-001',
+      graphTarget: 'graph:topic:source-src-001',
       changeSet: {
         target_files: ['wiki/sources/src-001.md', 'wiki/index.md', 'wiki/log.md'],
         patch_summary: 'source-grounded ingest queued for review because of graph conflict',
@@ -160,7 +160,7 @@ describe('createIngestSourceToGraphTool', () => {
       },
       review: {
         needs_review: true,
-        reasons: ['Conflicting topic node already exists: topic:patch-first-design--src-001']
+        reasons: ['Conflicting topic node already exists: topic:source-src-001']
       },
       persisted: ['wiki/sources/src-001.md', 'wiki/index.md', 'wiki/log.md']
     });
@@ -179,7 +179,7 @@ describe('createIngestSourceToGraphTool', () => {
     expect(result.details.needsReview).toBe(true);
     expect(result.details.summary).toContain('queued for review');
     expect(result.details.resultMarkdown).toContain('Queued for review');
-    expect(result.details.resultMarkdown).toContain('Graph conflict: Conflicting topic node already exists: topic:patch-first-design--src-001');
+    expect(result.details.resultMarkdown).toContain('Graph conflict: Conflicting topic node already exists: topic:source-src-001');
     expect(result.details.resultMarkdown).toContain('Coverage status: partial');
     expect(result.details.resultMarkdown).toContain('Covered anchors: 1/2');
     expect(result.details.resultMarkdown).toContain('Uncovered anchors: evidence:src-001#2');

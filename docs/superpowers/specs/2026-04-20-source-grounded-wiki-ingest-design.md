@@ -78,12 +78,12 @@
 
 | 字段 | 说明 |
 | --- | --- |
-| `locator` | 原文定位信息，例如页码、标题路径、段落范围 |
+| `locator` | 原文定位信息，例如页码、完整标题路径、段落范围 |
 | `excerpt` | 原文摘录 |
 | `order` | 在 source 内的顺序号 |
 | `heading_path` | 原文标题路径 |
 
-其中 `locator`、`excerpt` 是必须项；`order` 与 `heading_path` 建议在一阶段纳入。
+其中 `locator`、`excerpt` 是必须项；`locator` 在 markdown source 中固定携带完整 `heading_path`，`order` 与 `heading_path` 建议在一阶段纳入。
 
 ## 5. 关系模型调整
 
@@ -130,7 +130,7 @@
 
 为了保证重复 ingest 可重跑，第一阶段固定：
 
-- `topic.slug = <normalized-source-title>--<sourceId>`
+- `topic.slug = source-<sourceId>`
 - `topic.id = topic:<topic.slug>`
 - `section.id = section:<topic.slug>#<section-order>`
 - `evidence.id = evidence:<sourceId>#<anchor-order>`

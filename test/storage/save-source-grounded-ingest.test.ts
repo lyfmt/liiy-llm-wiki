@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { createGraphEdge } from '../../src/domain/graph-edge.js';
 import { createGraphNode } from '../../src/domain/graph-node.js';
 import { createSourceGroundedIngest } from '../../src/domain/source-grounded-ingest.js';
 import type { GraphDatabaseClient } from '../../src/storage/graph-database.js';
-import { listOutgoingGraphEdges, loadGraphNode, saveGraphNode } from '../../src/storage/graph-store.js';
+import { listOutgoingGraphEdges, loadGraphNode, saveGraphEdge, saveGraphNode } from '../../src/storage/graph-store.js';
 import {
   SOURCE_GROUNDED_INGEST_CONFLICT,
   SourceGroundedIngestConflictError,
@@ -409,10 +410,197 @@ describe('saveSourceGroundedIngest', () => {
       title: 'Conflicting Topic Title'
     });
   });
+
+  it('raises a business conflict instead of creating a second topic graph when the source already has a legacy title-derived topic id', async () => {
+    const client = createFakeGraphClient();
+    const ingest = createSourceGroundedIngest({
+      sourceId: 'src-001',
+      sourcePath: 'raw/accepted/design-patterns.md',
+      topic: {
+        slug: 'source-src-001',
+        title: 'Design Patterns Revised',
+        summary: 'Pattern overview.'
+      },
+      sections: [
+        {
+          id: 'section:source-src-001#1',
+          title: 'Introduction',
+          summary: 'Intro section.',
+          grounded_evidence_ids: ['evidence:src-001#1']
+        }
+      ],
+      evidence: [
+        {
+          id: 'evidence:src-001#1',
+          title: 'Patterns intro anchor',
+          locator: 'design-patterns.md#introduction:p1',
+          excerpt: 'Design patterns are reusable solutions.',
+          order: 1,
+          heading_path: ['Introduction']
+        }
+      ]
+    });
+    const legacyTopicId = 'topic:design-patterns--src-001';
+    const legacySectionId = 'section:design-patterns--src-001#1';
+
+    await seedNode(
+      client,
+      createGraphNode({
+        id: `source:${ingest.sourceId}`,
+        kind: 'source',
+        title: 'design-patterns.md',
+        summary: '',
+        aliases: [],
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        retrieval_text: ingest.sourcePath,
+        attributes: {
+          path: ingest.sourcePath,
+          source_id: ingest.sourceId
+        },
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedNode(
+      client,
+      createGraphNode({
+        id: ingest.evidence[0]!.id,
+        kind: 'evidence',
+        title: ingest.evidence[0]!.title,
+        summary: ingest.evidence[0]!.excerpt,
+        aliases: [],
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        retrieval_text: [ingest.evidence[0]!.title, ingest.evidence[0]!.excerpt].join('\n'),
+        attributes: {
+          locator: ingest.evidence[0]!.locator,
+          excerpt: ingest.evidence[0]!.excerpt,
+          order: ingest.evidence[0]!.order,
+          heading_path: ingest.evidence[0]!.heading_path
+        },
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedNode(
+      client,
+      createGraphNode({
+        id: legacyTopicId,
+        kind: 'topic',
+        title: 'Design Patterns',
+        summary: 'Pattern overview.',
+        aliases: [],
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'agent-synthesized',
+        review_state: 'reviewed',
+        retrieval_text: 'Design Patterns\nPattern overview.',
+        attributes: {
+          slug: 'design-patterns--src-001'
+        },
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedNode(
+      client,
+      createGraphNode({
+        id: legacySectionId,
+        kind: 'section',
+        title: 'Introduction',
+        summary: 'Intro section.',
+        aliases: [],
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'agent-synthesized',
+        review_state: 'reviewed',
+        retrieval_text: 'Introduction\nIntro section.',
+        attributes: {
+          grounded_evidence_ids: ['evidence:src-001#1']
+        },
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedEdge(
+      client,
+      createGraphEdge({
+        edge_id: `edge:derived_from:${ingest.evidence[0]!.id}->source:${ingest.sourceId}`,
+        from_id: ingest.evidence[0]!.id,
+        from_kind: 'evidence',
+        type: 'derived_from',
+        to_id: `source:${ingest.sourceId}`,
+        to_kind: 'source',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedEdge(
+      client,
+      createGraphEdge({
+        edge_id: `edge:grounded_by:${legacySectionId}->${ingest.evidence[0]!.id}`,
+        from_id: legacySectionId,
+        from_kind: 'section',
+        type: 'grounded_by',
+        to_id: ingest.evidence[0]!.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    await seedEdge(
+      client,
+      createGraphEdge({
+        edge_id: `edge:part_of:${legacySectionId}->${legacyTopicId}`,
+        from_id: legacySectionId,
+        from_kind: 'section',
+        type: 'part_of',
+        to_id: legacyTopicId,
+        to_kind: 'topic',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'agent-synthesized',
+        review_state: 'reviewed',
+        qualifiers: {},
+        created_at: '2026-04-19T00:00:00.000Z',
+        updated_at: '2026-04-19T00:00:00.000Z'
+      })
+    );
+    const baselineNodeUpserts = client.nodeUpserts.length;
+    const baselineEdgeUpserts = client.edgeUpserts.length;
+
+    await expect(saveSourceGroundedIngest(client, ingest, '2026-04-20T00:00:00.000Z')).rejects.toMatchObject({
+      code: SOURCE_GROUNDED_INGEST_CONFLICT,
+      entityKind: 'topic',
+      entityId: legacyTopicId
+    });
+    expect(client.nodeUpserts).toHaveLength(baselineNodeUpserts);
+    expect(client.edgeUpserts).toHaveLength(baselineEdgeUpserts);
+    await expect(loadGraphNode(client, ingest.topic.id)).resolves.toBeNull();
+  });
 });
 
 async function seedNode(client: GraphDatabaseClient, node: ReturnType<typeof createGraphNode>): Promise<void> {
   await saveGraphNode(client, node);
+}
+
+async function seedEdge(client: GraphDatabaseClient, edge: ReturnType<typeof createGraphEdge>): Promise<void> {
+  await saveGraphEdge(client, edge);
 }
 
 function createMinimalIngest() {

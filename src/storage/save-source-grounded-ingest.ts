@@ -5,7 +5,14 @@ import { createGraphNode, type GraphNode } from '../domain/graph-node.js';
 import type { SourceGroundedIngest } from '../domain/source-grounded-ingest.js';
 
 import type { GraphDatabaseClient } from './graph-database.js';
-import { insertGraphEdgeIfAbsent, insertGraphNodeIfAbsent, loadGraphEdge, loadGraphNode } from './graph-store.js';
+import {
+  insertGraphEdgeIfAbsent,
+  insertGraphNodeIfAbsent,
+  listIncomingGraphEdges,
+  listOutgoingGraphEdges,
+  loadGraphEdge,
+  loadGraphNode
+} from './graph-store.js';
 
 export const SOURCE_GROUNDED_INGEST_CONFLICT = 'SOURCE_GROUNDED_INGEST_CONFLICT';
 
@@ -30,6 +37,8 @@ export async function saveSourceGroundedIngest(
   savedAt = new Date().toISOString()
 ): Promise<void> {
   await runInTransaction(client, async (transactionClient) => {
+    await assertNoAlternativeTopicGraph(transactionClient, ingest);
+
     const sourceNode = buildSourceNode(ingest, savedAt);
     const topicNode = buildTopicNode(ingest, savedAt);
     const evidenceNodes = dedupeNodesById(
@@ -258,6 +267,65 @@ function getGroundedEvidenceIds(sectionNode: GraphNode): string[] {
   const groundedEvidenceIds = sectionNode.attributes.grounded_evidence_ids;
 
   return Array.isArray(groundedEvidenceIds) ? groundedEvidenceIds.map((value) => String(value)) : [];
+}
+
+async function assertNoAlternativeTopicGraph(
+  client: GraphDatabaseClient,
+  ingest: SourceGroundedIngest
+): Promise<void> {
+  const connectedTopicIds = await findConnectedTopicIdsForSource(client, ingest);
+  const alternativeTopicIds = connectedTopicIds.filter((topicId) => topicId !== ingest.topic.id);
+
+  if (alternativeTopicIds.length === 0) {
+    return;
+  }
+
+  const legacyTopicId = alternativeTopicIds[0]!;
+  throw new SourceGroundedIngestConflictError(
+    'topic',
+    legacyTopicId,
+    `Conflicting topic node already exists for source ${ingest.sourceId} under a different id: ${legacyTopicId}`
+  );
+}
+
+async function findConnectedTopicIdsForSource(
+  client: GraphDatabaseClient,
+  ingest: SourceGroundedIngest
+): Promise<string[]> {
+  const evidenceIds = new Set(ingest.evidence.map((evidence) => evidence.id));
+  const incomingSourceEdges = await listIncomingGraphEdges(client, `source:${ingest.sourceId}`);
+
+  for (const edge of incomingSourceEdges) {
+    if (edge.type === 'derived_from' && edge.from_kind === 'evidence' && edge.to_kind === 'source') {
+      evidenceIds.add(edge.from_id);
+    }
+  }
+
+  const sectionIds = new Set<string>();
+
+  for (const evidenceId of [...evidenceIds].sort((left, right) => left.localeCompare(right))) {
+    const incomingEvidenceEdges = await listIncomingGraphEdges(client, evidenceId);
+
+    for (const edge of incomingEvidenceEdges) {
+      if (edge.type === 'grounded_by' && edge.from_kind === 'section' && edge.to_kind === 'evidence') {
+        sectionIds.add(edge.from_id);
+      }
+    }
+  }
+
+  const topicIds = new Set<string>();
+
+  for (const sectionId of [...sectionIds].sort((left, right) => left.localeCompare(right))) {
+    const outgoingSectionEdges = await listOutgoingGraphEdges(client, sectionId);
+
+    for (const edge of outgoingSectionEdges) {
+      if (edge.type === 'part_of' && edge.from_kind === 'section' && edge.to_kind === 'topic') {
+        topicIds.add(edge.to_id);
+      }
+    }
+  }
+
+  return [...topicIds].sort((left, right) => left.localeCompare(right));
 }
 
 function nodesHaveSameContent(existingNode: GraphNode, desiredNode: GraphNode): boolean {

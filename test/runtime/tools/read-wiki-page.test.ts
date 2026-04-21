@@ -310,6 +310,41 @@ describe('createReadWikiPageTool', () => {
     }
   });
 
+  it('summarizes rooted taxonomy, nested sections, and rooted entity/assertion expansions from the topic graph', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-read-page-rooted-graph-'));
+
+    try {
+      vi.mocked(loadTopicGraphPage).mockResolvedValue(buildRootedMockTopicGraphPage());
+
+      const tool = createReadWikiPageTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-read-page-rooted-graph-001'
+        })
+      );
+
+      const result = await tool.execute('tool-call-rooted-graph-1', { kind: 'topic', slug: 'patch-first' });
+
+      expect(result.details.resultMarkdown).toContain('Topic graph summary:');
+      expect(result.details.resultMarkdown).toContain('Taxonomy: Architecture; Engineering');
+      expect(result.details.resultMarkdown).toContain('Sections:');
+      expect(result.details.resultMarkdown).toContain(
+        'Patch First Overview (Grounding: raw/accepted/patch-first-spec.md; locators: patch-first-spec.md#stable; anchors: 1)'
+      );
+      expect(result.details.resultMarkdown).toContain(
+        'Patch First Details (Grounding: raw/accepted/patch-first-spec.md; locators: patch-first-spec.md#stable; anchors: 1)'
+      );
+      expect(result.details.resultMarkdown).toContain(
+        'Entities: Assertion Reader; Evidence Anchor; Graph Reader; Section Reader; Source Index'
+      );
+      expect(result.details.resultMarkdown).toContain(
+        'Assertions: Entity rooted claim (evidence: 1); Patch First Stability (evidence: 1)'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns a synthesized topic graph page even when the markdown file is missing', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-read-page-synth-'));
 
@@ -548,6 +583,171 @@ function buildMockTopicGraphPage(input?: {
         }
       ],
       evidence: [{ node: evidence, source }]
+    }
+  };
+}
+
+function buildRootedMockTopicGraphPage() {
+  const base = buildMockTopicGraphPage();
+  const taxonomyParent = createGraphNode({
+    id: 'taxonomy:architecture',
+    kind: 'taxonomy',
+    title: 'Architecture',
+    summary: 'Parent taxonomy.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const sectionChild = createGraphNode({
+    id: 'section:patch-first-overview-details',
+    kind: 'section',
+    title: 'Patch First Details',
+    summary: 'Nested section.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entitySection = createGraphNode({
+    id: 'entity:section-reader',
+    kind: 'entity',
+    title: 'Section Reader',
+    summary: 'Section mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entityEvidence = createGraphNode({
+    id: 'entity:evidence-anchor',
+    kind: 'entity',
+    title: 'Evidence Anchor',
+    summary: 'Evidence mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entitySource = createGraphNode({
+    id: 'entity:source-index',
+    kind: 'entity',
+    title: 'Source Index',
+    summary: 'Source mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entityAssertion = createGraphNode({
+    id: 'entity:assertion-reader',
+    kind: 'entity',
+    title: 'Assertion Reader',
+    summary: 'Assertion mention.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const assertionEntity = createGraphNode({
+    id: 'assertion:entity-rooted-claim',
+    kind: 'assertion',
+    title: 'Entity rooted claim',
+    summary: 'Entity rooted assertion.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      statement: 'Entity rooted assertion.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const evidenceEntity = createGraphNode({
+    id: 'evidence:entity-rooted-proof',
+    kind: 'evidence',
+    title: 'Entity rooted proof',
+    summary: 'Entity evidence.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'source-derived',
+    review_state: 'reviewed',
+    attributes: {
+      locator: 'entity-spec.md#rooted',
+      excerpt: 'Entity rooted excerpt.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const sourceEntity = createGraphNode({
+    id: 'source:entity-spec',
+    kind: 'source',
+    title: 'Entity Spec',
+    summary: 'Entity source.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      path: 'raw/accepted/entity-spec.md'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+
+  return {
+    ...base,
+    projection: {
+      ...base.projection,
+      taxonomy: [taxonomyParent, ...base.projection.taxonomy],
+      sections: [
+        ...base.projection.sections,
+        {
+          node: sectionChild,
+          grounding: {
+            source_paths: ['raw/accepted/patch-first-spec.md'],
+            locators: ['patch-first-spec.md#stable'],
+            anchor_count: 1
+          }
+        }
+      ],
+      entities: [
+        entityAssertion,
+        entityEvidence,
+        ...base.projection.entities,
+        entitySection,
+        entitySource
+      ],
+      assertions: [
+        {
+          node: assertionEntity,
+          evidence: [{ node: evidenceEntity, source: sourceEntity }]
+        },
+        ...base.projection.assertions
+      ],
+      evidence: [
+        { node: evidenceEntity, source: sourceEntity },
+        ...base.projection.evidence
+      ]
     }
   };
 }
