@@ -56,7 +56,11 @@ describe('main serve command', () => {
 
     try {
       await bootstrapProject(root);
-      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=serve-test-key\n', 'utf8');
+      await writeFile(
+        path.join(root, '.env'),
+        'RUNTIME_API_KEY=serve-test-key\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n',
+        'utf8'
+      );
       await saveKnowledgePage(
         root,
         createKnowledgePage({
@@ -180,6 +184,7 @@ describe('main serve command', () => {
           status: string;
           configured_api_key_env: string;
           project_env_has_configured_key: boolean;
+          project_env_has_graph_database_url: boolean;
         };
       };
       expect(operationsResponse.status).toBe(200);
@@ -187,7 +192,8 @@ describe('main serve command', () => {
         ready: true,
         status: 'ready',
         configured_api_key_env: 'RUNTIME_API_KEY',
-        project_env_has_configured_key: true
+        project_env_has_configured_key: true,
+        project_env_has_graph_database_url: true
       });
 
       const uploadResponse = await fetch(`http://127.0.0.1:${output.port}/api/chat/uploads`, {

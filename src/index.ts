@@ -21,6 +21,17 @@ export type {
 } from './domain/graph-node.js';
 export { createGraphEdge } from './domain/graph-edge.js';
 export type { GraphEdge, GraphEdgeType } from './domain/graph-edge.js';
+export { createSourceGroundedIngest } from './domain/source-grounded-ingest.js';
+export type {
+  CreateSourceGroundedIngestInput,
+  SourceGroundedIngest,
+  SourceGroundedIngestEvidence,
+  SourceGroundedIngestEvidenceInput,
+  SourceGroundedIngestSection,
+  SourceGroundedIngestSectionInput,
+  SourceGroundedIngestTopic,
+  SourceGroundedIngestTopicInput
+} from './domain/source-grounded-ingest.js';
 export { createRequestRun } from './domain/request-run.js';
 export type { RequestRun, RequestRunStatus } from './domain/request-run.js';
 export { createChangeSet } from './domain/change-set.js';
@@ -52,7 +63,7 @@ export {
 } from './storage/source-manifest-store.js';
 export { listKnowledgeTasks, loadKnowledgeTask, saveKnowledgeTask } from './storage/task-store.js';
 export { loadChatSettings, saveChatSettings } from './storage/chat-settings-store.js';
-export { createGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
+export { createGraphDatabasePool, disposeGraphDatabasePools, getSharedGraphDatabasePool, resolveGraphDatabaseUrl } from './storage/graph-database.js';
 export type { GraphDatabaseClient } from './storage/graph-database.js';
 export { buildGraphSchemaSql } from './storage/graph-schema.js';
 export { buildGraphProjection } from './storage/graph-projection-store.js';

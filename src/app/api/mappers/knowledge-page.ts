@@ -1,7 +1,9 @@
 import type { KnowledgePageResponseDto, KnowledgePageLinkDto } from '../dto/knowledge-page.js';
 import type { KnowledgePage, KnowledgePageKind } from '../../../domain/knowledge-page.js';
 import { listKnowledgePages } from '../../../storage/list-knowledge-pages.js';
+import type { GraphProjection } from '../../../storage/graph-projection-store.js';
 import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../../storage/knowledge-page-store.js';
+import { loadTopicGraphPage } from '../../../storage/load-topic-graph-page.js';
 import { listSourceManifests } from '../../../storage/source-manifest-store.js';
 
 export async function buildKnowledgePageResponseDto(
@@ -9,11 +11,15 @@ export async function buildKnowledgePageResponseDto(
   kind: KnowledgePageKind,
   slug: string
 ): Promise<KnowledgePageResponseDto> {
-  const loaded = await loadKnowledgePage(root, kind, slug);
+  const topicGraphPage = kind === 'topic' ? await loadTopicGraphPage(root, slug) : null;
+  const loaded = topicGraphPage ?? (await loadKnowledgePage(root, kind, slug));
   const [allPages, manifests] = await Promise.all([loadAllKnowledgePages(root), listSourceManifests(root)]);
+  const graphNavigation = topicGraphPage ? buildTopicGraphNavigation(topicGraphPage.projection) : null;
   const pageSummaries = new Map(allPages.map((page) => [page.path, toKnowledgePageLinkDto(page)]));
+  pageSummaries.set(loaded.page.path, toKnowledgePageLinkDto(loaded.page));
   const manifestByPath = new Map(manifests.map((manifest) => [manifest.path, manifest]));
   const currentSourceRefs = new Set(loaded.page.source_refs);
+  const resolvedGraphTopicLinks = new Map<string, KnowledgePageLinkDto | null>();
 
   const backlinks = allPages
     .filter((page) => page.path !== loaded.page.path && page.outgoing_links.includes(loaded.page.path))
@@ -43,6 +49,10 @@ export async function buildKnowledgePageResponseDto(
       body: loaded.body
     },
     navigation: {
+      taxonomy: graphNavigation?.taxonomy ?? [],
+      sections: graphNavigation?.sections ?? [],
+      entities: graphNavigation?.entities ?? [],
+      assertions: graphNavigation?.assertions ?? [],
       source_refs: loaded.page.source_refs.map((sourceRef) => {
         const manifest = manifestByPath.get(sourceRef) ?? null;
         return {
@@ -55,8 +65,8 @@ export async function buildKnowledgePageResponseDto(
           }
         };
       }),
-      outgoing_links: loaded.page.outgoing_links.map((target) => {
-        const linkedPage = pageSummaries.get(target) ?? null;
+      outgoing_links: await Promise.all(loaded.page.outgoing_links.map(async (target) => {
+        const linkedPage = await resolveLinkedPage(root, target, pageSummaries, resolvedGraphTopicLinks);
         return {
           target,
           is_local_wiki_page: linkedPage !== null,
@@ -64,13 +74,94 @@ export async function buildKnowledgePageResponseDto(
             ? linkedPage.links
             : {
                 app: null,
-                api: null
+              api: null
               }
         };
-      }),
+      })),
       backlinks,
       related_by_source: relatedBySource
     }
+  };
+}
+
+async function resolveLinkedPage(
+  root: string,
+  target: string,
+  pageSummaries: Map<string, KnowledgePageLinkDto>,
+  resolvedGraphTopicLinks: Map<string, KnowledgePageLinkDto | null>
+): Promise<KnowledgePageLinkDto | null> {
+  const existing = pageSummaries.get(target);
+
+  if (existing) {
+    return existing;
+  }
+
+  const cached = resolvedGraphTopicLinks.get(target);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const topicSlug = parseTopicSlugFromPagePath(target);
+
+  if (!topicSlug) {
+    resolvedGraphTopicLinks.set(target, null);
+    return null;
+  }
+
+  try {
+    const graphTopicPage = await loadTopicGraphPage(root, topicSlug);
+    const linkedPage = graphTopicPage ? toKnowledgePageLinkDto(graphTopicPage.page) : null;
+
+    if (linkedPage) {
+      pageSummaries.set(target, linkedPage);
+    }
+
+    resolvedGraphTopicLinks.set(target, linkedPage);
+    return linkedPage;
+  } catch {
+    resolvedGraphTopicLinks.set(target, null);
+    return null;
+  }
+}
+
+function parseTopicSlugFromPagePath(target: string): string | null {
+  const match = /^wiki\/topics\/([^/]+)\.md$/u.exec(target);
+  return match?.[1] ?? null;
+}
+
+function buildTopicGraphNavigation(projection: GraphProjection): KnowledgePageResponseDto['navigation'] {
+  return {
+    taxonomy: projection.taxonomy.map((node) => ({
+      id: node.id,
+      title: node.title,
+      summary: node.summary
+    })),
+    sections: projection.sections.map((entry) => ({
+      id: entry.node.id,
+      title: entry.node.title,
+      summary: entry.node.summary,
+      grounding: {
+        source_paths: [...entry.grounding.source_paths],
+        locators: [...entry.grounding.locators],
+        anchor_count: entry.grounding.anchor_count
+      }
+    })),
+    entities: projection.entities.map((node) => ({
+      id: node.id,
+      title: node.title,
+      summary: node.summary
+    })),
+    assertions: projection.assertions.map((entry) => ({
+      id: entry.node.id,
+      title: entry.node.title,
+      statement: toAssertionStatement(entry.node),
+      evidence_count: entry.evidence.length
+    })),
+    source_refs: [],
+    outgoing_links: [],
+    backlinks: [],
+    related_by_source: []
   };
 }
 
@@ -104,4 +195,18 @@ function toKnowledgePageLinkDto(page: KnowledgePage): KnowledgePageLinkDto {
       api: `/api/pages/${page.kind}/${encodeURIComponent(slug)}`
     }
   };
+}
+
+function toAssertionStatement(node: { title: string; summary: string; attributes: Record<string, unknown> }): string {
+  const statement = typeof node.attributes.statement === 'string' ? node.attributes.statement.trim() : '';
+
+  if (statement !== '') {
+    return statement;
+  }
+
+  if (node.summary.trim() !== '') {
+    return node.summary.trim();
+  }
+
+  return node.title;
 }

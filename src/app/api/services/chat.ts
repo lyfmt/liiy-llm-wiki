@@ -80,19 +80,27 @@ export function buildRuntimeReadinessSummaryDto(
   const configuredApiKeyEnv = settings.api_key_env?.trim() || '_none_';
   const projectEnvHasConfiguredKey =
     configuredApiKeyEnv !== '_none_' && projectEnv.values[configuredApiKeyEnv] !== undefined && projectEnv.values[configuredApiKeyEnv] !== '';
+  const projectEnvHasGraphDatabaseUrl = (projectEnv.values.GRAPH_DATABASE_URL?.trim() ?? '') !== '';
   const missingApiKey = resolveMissingChatRunApiKey(settings, resolvedRuntimeModel);
-  const issues = missingApiKey ? [`Project .env is missing ${missingApiKey.apiKeyEnv}.`] : [];
+  const missingRequirements = [
+    ...(missingApiKey ? [missingApiKey.apiKeyEnv] : []),
+    ...(projectEnvHasGraphDatabaseUrl ? [] : ['GRAPH_DATABASE_URL'])
+  ];
+  const issues = missingRequirements.map((requirement) => `Project .env is missing ${requirement}.`);
+  const ready = missingRequirements.length === 0;
+  const status = resolveRuntimeReadinessStatus({ missingApiKey: missingApiKey !== null, missingGraphDatabaseUrl: !projectEnvHasGraphDatabaseUrl });
 
   return {
-    ready: missingApiKey === null,
-    status: missingApiKey ? 'missing_api_key' : 'ready',
-    summary: missingApiKey
-      ? `Runtime is blocked until ${missingApiKey.apiKeyEnv} is set in the project .env.`
-      : 'Runtime is ready for web-launched agent requests.',
+    ready,
+    status,
+    summary: ready
+      ? 'Runtime is ready for web-launched agent requests.'
+      : buildBlockedRuntimeReadinessSummary(missingRequirements),
     issues,
     settings_url: '/api/chat/settings',
     configured_api_key_env: configuredApiKeyEnv,
     project_env_has_configured_key: projectEnvHasConfiguredKey,
+    project_env_has_graph_database_url: projectEnvHasGraphDatabaseUrl,
     model: settings.model,
     provider: resolvedRuntimeModel.model.provider,
     api: resolvedRuntimeModel.model.api,
@@ -113,6 +121,42 @@ export function resolveMissingChatRunApiKey(
   }
 
   return resolvedRuntimeModel.getApiKey(resolvedRuntimeModel.model.provider) ? null : { apiKeyEnv: configuredEnvName };
+}
+
+function resolveRuntimeReadinessStatus(input: {
+  missingApiKey: boolean;
+  missingGraphDatabaseUrl: boolean;
+}): RuntimeReadinessSummaryDto['status'] {
+  if (input.missingApiKey && input.missingGraphDatabaseUrl) {
+    return 'missing_api_key_and_graph_database_url';
+  }
+
+  if (input.missingApiKey) {
+    return 'missing_api_key';
+  }
+
+  if (input.missingGraphDatabaseUrl) {
+    return 'missing_graph_database_url';
+  }
+
+  return 'ready';
+}
+
+function joinRuntimeRequirementNames(requirements: string[]): string {
+  if (requirements.length === 1) {
+    return requirements[0] ?? '';
+  }
+
+  if (requirements.length === 2) {
+    return `${requirements[0]} and ${requirements[1]}`;
+  }
+
+  return `${requirements.slice(0, -1).join(', ')}, and ${requirements[requirements.length - 1]}`;
+}
+
+function buildBlockedRuntimeReadinessSummary(requirements: string[]): string {
+  const verb = requirements.length === 1 ? 'is' : 'are';
+  return `Runtime is blocked until ${joinRuntimeRequirementNames(requirements)} ${verb} set in the project .env.`;
 }
 
 export async function summarizeChatRunResponseDto(root: string, runId: string): Promise<ChatRunLinkSummaryDto> {

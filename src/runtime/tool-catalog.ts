@@ -10,6 +10,7 @@ import {
 import { createDraftQueryPageTool } from './tools/draft-query-page.js';
 import { createFindSourceManifestTool } from './tools/find-source-manifest.js';
 import { createIngestSourceTool } from './tools/ingest-source.js';
+import { createIngestSourceToGraphTool } from './tools/ingest-source-to-graph.js';
 import { createLintWikiTool } from './tools/lint-wiki.js';
 import { createListSourceManifestsTool } from './tools/list-source-manifests.js';
 import { createListWikiPagesTool } from './tools/list-wiki-pages.js';
@@ -47,6 +48,7 @@ export function buildRuntimeToolCatalog(
     apply_draft_upsert: createApplyDraftUpsertTool(runtimeContext),
     find_source_manifest: createFindSourceManifestTool(runtimeContext),
     ingest_source: createIngestSourceTool(runtimeContext),
+    ingest_source_to_graph: createIngestSourceToGraphTool(runtimeContext),
     query_wiki: createQueryWikiTool(runtimeContext, {
       synthesizeAnswer: options.querySynthesizer
     }),

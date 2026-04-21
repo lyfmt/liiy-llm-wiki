@@ -1,4 +1,4 @@
-import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -259,17 +259,19 @@ describe('app api services', () => {
       const operations = await buildChatOperationsSummaryDto(root);
 
       expect(operations.settings.model).toBe('gpt-5.4');
-      expect(operations.project_env).toEqual({
-        source: 'project_root_env',
-        keys: ['RUNTIME_API_KEY']
+      expect(operations.project_env).toMatchObject({
+        source: 'project_root_env'
       });
+      expect(operations.project_env.keys).toEqual(expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']));
       expect(operations.runtime_readiness).toMatchObject({
         ready: false,
         status: 'missing_api_key',
         configured_api_key_env: 'RUNTIME_API_KEY',
         project_env_has_configured_key: false,
+        project_env_has_graph_database_url: true,
         settings_url: '/api/chat/settings'
       });
+      expect(operations.runtime_readiness.issues).toEqual(['Project .env is missing RUNTIME_API_KEY.']);
       expect(operations.runtime_readiness.summary).toContain('Runtime is blocked');
       expect(operations.recent_runs.map((run) => run.run_id)).toEqual(['run-006', 'run-005', 'run-004', 'run-003', 'run-002']);
       expect(operations.recent_runs[0]).toMatchObject({
@@ -281,6 +283,58 @@ describe('app api services', () => {
       });
       expect(operations.suggested_requests).toHaveLength(4);
       expect(operations.suggested_requests[0]).toContain('Inspect the wiki for patch first');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports readiness as blocked when only GRAPH_DATABASE_URL is missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-api-services-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=runtime-key\n', 'utf8');
+
+      const operations = await buildChatOperationsSummaryDto(root);
+
+      expect(operations.runtime_readiness).toMatchObject({
+        ready: false,
+        status: 'missing_graph_database_url',
+        configured_api_key_env: 'RUNTIME_API_KEY',
+        project_env_has_configured_key: true,
+        project_env_has_graph_database_url: false
+      });
+      expect(operations.runtime_readiness.issues).toEqual(['Project .env is missing GRAPH_DATABASE_URL.']);
+      expect(operations.runtime_readiness.summary).toBe('Runtime is blocked until GRAPH_DATABASE_URL is set in the project .env.');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports readiness as blocked when both API key and GRAPH_DATABASE_URL are missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-api-services-'));
+
+    try {
+      await bootstrapProject(root);
+      const currentEnv = await readFile(path.join(root, '.env'), 'utf8');
+      await writeFile(path.join(root, '.env'), currentEnv.replace(/^GRAPH_DATABASE_URL=.*\n?/mu, ''), 'utf8');
+
+      const operations = await buildChatOperationsSummaryDto(root);
+
+      expect(operations.runtime_readiness).toMatchObject({
+        ready: false,
+        status: 'missing_api_key_and_graph_database_url',
+        configured_api_key_env: 'RUNTIME_API_KEY',
+        project_env_has_configured_key: false,
+        project_env_has_graph_database_url: false
+      });
+      expect(operations.runtime_readiness.issues).toEqual([
+        'Project .env is missing RUNTIME_API_KEY.',
+        'Project .env is missing GRAPH_DATABASE_URL.'
+      ]);
+      expect(operations.runtime_readiness.summary).toBe(
+        'Runtime is blocked until RUNTIME_API_KEY and GRAPH_DATABASE_URL are set in the project .env.'
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

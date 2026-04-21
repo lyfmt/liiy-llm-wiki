@@ -2,8 +2,10 @@ import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 import type { KnowledgePage, KnowledgePageKind } from '../../domain/knowledge-page.js';
+import type { GraphProjection } from '../../storage/graph-projection-store.js';
 import { listKnowledgePages } from '../../storage/list-knowledge-pages.js';
 import { loadKnowledgePage, loadKnowledgePageMetadata } from '../../storage/knowledge-page-store.js';
+import { loadTopicGraphPage } from '../../storage/load-topic-graph-page.js';
 import type { RuntimeContext } from '../runtime-context.js';
 import type { RuntimeToolOutcome } from '../request-run-state.js';
 
@@ -19,6 +21,17 @@ const parameters = Type.Object({
   slug: Type.String({ description: 'Wiki page slug without .md' })
 });
 
+const recoverableTopicGraphErrorCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT', '57P01', '57P03']);
+
+const recoverableTopicGraphErrorMessages = [
+  'Missing GRAPH_DATABASE_URL',
+  'connect ECONNREFUSED',
+  'getaddrinfo ENOTFOUND',
+  'Connection terminated unexpectedly',
+  'the database system is starting up',
+  'cannot connect now'
+];
+
 export type ReadWikiPageParameters = Static<typeof parameters>;
 
 export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentTool<typeof parameters, RuntimeToolOutcome> {
@@ -29,7 +42,10 @@ export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentToo
       'Read a specific wiki page in detail, including metadata, backlinks, related pages, and body content. Use after you already have a likely page candidate. Skip it when a direct answer does not need wiki evidence.',
     parameters,
     execute: async (_toolCallId, params) => {
-      const loaded = await loadKnowledgePage(runtimeContext.root, params.kind as KnowledgePageKind, params.slug);
+      const topicGraphPage =
+        params.kind === 'topic' ? await loadTopicGraphPageWithFallback(runtimeContext.root, params.slug) : null;
+      const loaded =
+        topicGraphPage ?? (await loadKnowledgePage(runtimeContext.root, params.kind as KnowledgePageKind, params.slug));
       const page = loaded.page;
       const backlinks = await findIncomingLinks(runtimeContext.root, page.path);
       const relatedBySource = await findSharedSourcePages(runtimeContext.root, page);
@@ -49,7 +65,8 @@ export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentToo
         `Updated at: ${page.updated_at}`,
         '',
         'Body:',
-        loaded.body.trim() || '_empty_'
+        loaded.body.trim() || '_empty_',
+        ...(topicGraphPage ? ['', 'Topic graph summary:', ...formatTopicGraphSummary(topicGraphPage.projection)] : [])
       ].join('\n');
       const outcome: RuntimeToolOutcome = {
         toolName: 'read_wiki_page',
@@ -65,6 +82,81 @@ export function createReadWikiPageTool(runtimeContext: RuntimeContext): AgentToo
       };
     }
   };
+}
+
+async function loadTopicGraphPageWithFallback(root: string, slug: string) {
+  try {
+    return await loadTopicGraphPage(root, slug);
+  } catch (error) {
+    if (!isRecoverableTopicGraphError(error)) {
+      throw error;
+    }
+
+    return null;
+  }
+}
+
+function formatTopicGraphSummary(projection: GraphProjection): string[] {
+  return [
+    `Taxonomy: ${formatGraphNodeList(projection.taxonomy)}`,
+    `Sections: ${formatSections(projection)}`,
+    `Entities: ${formatGraphNodeList(projection.entities)}`,
+    `Assertions: ${formatAssertions(projection)}`
+  ];
+}
+
+function formatGraphNodeList(nodes: Array<{ title: string }>): string {
+  return nodes.map((node) => node.title).join('; ') || '_none_';
+}
+
+function formatAssertions(projection: GraphProjection): string {
+  return (
+    projection.assertions
+      .map((entry) => `${entry.node.title} (evidence: ${entry.evidence.length})`)
+      .join('; ') || '_none_'
+  );
+}
+
+function formatSections(projection: GraphProjection): string {
+  return (
+    projection.sections
+      .map((section) => {
+        const groundingParts: string[] = [];
+
+        if (section.grounding.source_paths.length > 0) {
+          groundingParts.push(`Grounding: ${section.grounding.source_paths.join(', ')}`);
+        }
+
+        if (section.grounding.locators.length > 0) {
+          groundingParts.push(`locators: ${section.grounding.locators.join(', ')}`);
+        }
+
+        if (section.grounding.anchor_count > 0) {
+          groundingParts.push(`anchors: ${section.grounding.anchor_count}`);
+        }
+
+        if (groundingParts.length === 0) {
+          return section.node.title;
+        }
+
+        return `${section.node.title} (${groundingParts.join('; ')})`;
+      })
+      .join('; ') || '_none_'
+  );
+}
+
+function isRecoverableTopicGraphError(error: unknown): error is Error {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const errorWithCode = error as Error & { code?: unknown };
+  const code = typeof errorWithCode.code === 'string' ? errorWithCode.code : null;
+
+  return (
+    (code !== null && recoverableTopicGraphErrorCodes.has(code)) ||
+    recoverableTopicGraphErrorMessages.some((message) => error.message.includes(message))
+  );
 }
 
 async function findIncomingLinks(root: string, targetPath: string): Promise<string[]> {

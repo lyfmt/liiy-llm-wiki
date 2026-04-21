@@ -1,12 +1,14 @@
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createAssistantMessageEventStream, type AssistantMessage, type Context, type ToolCall } from '@mariozechner/pi-ai';
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 
 import { bootstrapProject } from '../../src/app/bootstrap-project.js';
 import { createWebServer } from '../../src/app/web-server.js';
+import { createGraphEdge } from '../../src/domain/graph-edge.js';
+import { createGraphNode } from '../../src/domain/graph-node.js';
 import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import { createRequestRun } from '../../src/domain/request-run.js';
 import { createSourceManifest } from '../../src/domain/source-manifest.js';
@@ -15,6 +17,12 @@ import { saveRequestRunState, type RequestRunState } from '../../src/storage/req
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
 import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
+
+vi.mock('../../src/storage/load-topic-graph-projection.js', () => ({
+  loadTopicGraphProjectionInput: vi.fn(async (_client, slug: string) =>
+    slug === 'patch-first' ? buildTopicGraphProjectionInput(slug) : null
+  )
+}));
 
 interface JsonResponse<T> {
   status: number;
@@ -200,10 +208,20 @@ describe('createWebServer', () => {
         const discoveryApp = await fetchText(`${baseUrl}/app/discovery`);
         const readingApp = await fetchText(`${baseUrl}/app/pages/topic/patch-first`);
         const discoveryDto = await fetchJson<{ totals: { topics: number }; sections: Array<{ kind: string; items: Array<{ links: { app: string; api: string } }> }> }>(`${baseUrl}/api/discovery`);
-        const readingDto = await fetchJson<{ page: { title: string; tags: string[]; body: string }; navigation: { source_refs: Array<{ links: { api: string | null; app: string | null } }>; related_by_source: Array<{ links: { app: string; api: string } }> } }>(`${baseUrl}/api/pages/topic/patch-first`);
+        const readingDto = await fetchJson<{
+          page: { title: string; tags: string[]; body: string };
+          navigation: {
+            taxonomy: Array<{ title: string }>;
+            sections: Array<{ title: string }>;
+            entities: Array<{ title: string }>;
+            assertions: Array<{ statement: string }>;
+            source_refs: Array<{ links: { api: string | null; app: string | null } }>;
+            related_by_source: Array<{ links: { app: string; api: string } }>;
+          };
+        }>(`${baseUrl}/api/pages/topic/patch-first`);
         const wikiIndex = await fetchJson<{ topics: string[] }>(`${baseUrl}/api/wiki/index`);
         const wikiPage = await fetchJson<{ page: { title: string; tags: string[]; summary: string }; navigation: { backlinks: unknown[] } }>(`${baseUrl}/api/pages/topic/patch-first`);
-        const chatOperations = await fetchJson<{ settings: { model: string }; project_env: { source: 'project_root_env'; keys: string[] }; runtime_readiness: { status: string; ready: boolean; configured_api_key_env: string; project_env_has_configured_key: boolean; summary: string }; recent_runs: Array<{ run_id: string }>; suggested_requests: string[] }>(`${baseUrl}/api/chat/operations`);
+        const chatOperations = await fetchJson<{ settings: { model: string }; project_env: { source: 'project_root_env'; keys: string[] }; runtime_readiness: { status: string; ready: boolean; configured_api_key_env: string; project_env_has_configured_key: boolean; project_env_has_graph_database_url: boolean; summary: string }; recent_runs: Array<{ run_id: string }>; suggested_requests: string[] }>(`${baseUrl}/api/chat/operations`);
         const chatModels = await fetchJson<{ default_provider: string; providers: Array<{ id: string; models: Array<{ id: string; provider: string; selected: boolean; built_in: boolean; api: string; base_url: string; api_key_env?: string; reasoning: boolean; context_window: number; max_tokens: number }> }>; selected: { provider: string; model: string; api: string; base_url: string; api_key_env?: string; reasoning?: boolean; context_window?: number; max_tokens?: number } }>(`${baseUrl}/api/chat/models`);
         const sources = await fetchJson<Array<{ id: string; title: string; type: string; status: string; raw_path: string; imported_at: string; tags: string[]; has_notes: boolean; links: { api: string } }>>(`${baseUrl}/api/sources`);
         const runs = await fetchJson<Array<{ run_id: string; has_changeset: boolean }>>(`${baseUrl}/api/runs`);
@@ -231,6 +249,19 @@ describe('createWebServer', () => {
           app: null,
           api: '/api/sources/src-001'
         });
+        expect(readingDto.body.navigation.taxonomy[0]?.title).toBe('Engineering');
+        expect(readingDto.body.navigation.sections[0]).toMatchObject({
+          id: 'section:patch-first-overview',
+          title: 'Patch First Overview',
+          summary: 'Overview section.',
+          grounding: {
+            anchor_count: 1,
+            source_paths: ['raw/accepted/patch-first-spec.md'],
+            locators: ['spec.md#stable']
+          }
+        });
+        expect(readingDto.body.navigation.entities[0]?.title).toBe('Graph Reader');
+        expect(readingDto.body.navigation.assertions[0]?.statement).toContain('stable');
         expect(readingDto.body.navigation.related_by_source[0]?.links).toEqual({
           app: '/app/pages/query/patch-first',
           api: '/api/pages/query/patch-first'
@@ -242,12 +273,16 @@ describe('createWebServer', () => {
         expect(wikiPage.body.page.summary).toBe('Patch-first updates keep page');
         expect(Array.isArray(wikiPage.body.navigation.backlinks)).toBe(true);
         expect(chatOperations.body.settings.model).toBe('gpt-5.4');
-        expect(chatOperations.body.project_env).toEqual({ source: 'project_root_env', keys: ['RUNTIME_API_KEY'] });
+        expect(chatOperations.body.project_env).toMatchObject({ source: 'project_root_env' });
+        expect(chatOperations.body.project_env.keys).toEqual(
+          expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL'])
+        );
         expect(chatOperations.body.runtime_readiness).toMatchObject({
           ready: false,
           status: 'missing_api_key',
           configured_api_key_env: 'RUNTIME_API_KEY',
-          project_env_has_configured_key: false
+          project_env_has_configured_key: false,
+          project_env_has_graph_database_url: true
         });
         expect(chatOperations.body.runtime_readiness.summary).toContain('Runtime is blocked');
         expect(chatOperations.body.recent_runs).toEqual([
@@ -397,7 +432,8 @@ describe('createWebServer', () => {
             api: 'anthropic-messages',
             base_url: 'http://runtime.example.invalid/v1',
             api_key_env: 'RUNTIME_API_KEY',
-            project_env_contents: 'RUNTIME_API_KEY=web-updated-key\nMODEL_NOTES="operator ready"\n',
+            project_env_contents:
+              'RUNTIME_API_KEY=web-updated-key\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\nMODEL_NOTES="operator ready"\n',
             reasoning: true,
             context_window: 256000,
             max_tokens: 32768,
@@ -412,11 +448,14 @@ describe('createWebServer', () => {
         });
 
         expect(currentSettings.body.settings.model).toBe('gpt-5.4');
-        expect(currentSettings.body.project_env).toEqual({
-          source: 'project_root_env',
-          keys: ['RUNTIME_API_KEY'],
-          contents: 'RUNTIME_API_KEY=\n'
+        expect(currentSettings.body.project_env).toMatchObject({
+          source: 'project_root_env'
         });
+        expect(currentSettings.body.project_env.keys).toEqual(
+          expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL'])
+        );
+        expect(currentSettings.body.project_env.contents).toContain('RUNTIME_API_KEY=');
+        expect(currentSettings.body.project_env.contents).toContain('GRAPH_DATABASE_URL=');
         expect(updatedSettings.body.settings).toMatchObject({
           model: 'gpt-5.4',
           provider: 'llm-wiki-liiy',
@@ -430,15 +469,29 @@ describe('createWebServer', () => {
           allow_lint_autofix: true
         });
         expect(updatedSettings.body.project_env.source).toBe('project_root_env');
-        expect(updatedSettings.body.project_env.keys).toEqual(['RUNTIME_API_KEY']);
+        expect(updatedSettings.body.project_env.keys).toEqual(
+          expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL'])
+        );
         expect(updatedSettings.body.project_env.contents).toContain('RUNTIME_API_KEY=web-updated-key');
+        expect(updatedSettings.body.project_env.contents).toContain(
+          'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy'
+        );
         expect(updatedSettings.body.project_env.contents).toContain('MODEL_NOTES="operator ready"');
         expect(await readFile(path.join(root, '.env'), 'utf8')).toContain('RUNTIME_API_KEY=web-updated-key');
-        const chatOperationsReady = await fetchJson<{ runtime_readiness: { status: string; ready: boolean; project_env_has_configured_key: boolean; summary: string } }>(`${baseUrl}/api/chat/operations`);
+        const chatOperationsReady = await fetchJson<{
+          runtime_readiness: {
+            status: string;
+            ready: boolean;
+            project_env_has_configured_key: boolean;
+            project_env_has_graph_database_url: boolean;
+            summary: string;
+          };
+        }>(`${baseUrl}/api/chat/operations`);
         expect(chatOperationsReady.body.runtime_readiness).toMatchObject({
           ready: true,
           status: 'ready',
-          project_env_has_configured_key: true
+          project_env_has_configured_key: true,
+          project_env_has_graph_database_url: true
         });
         expect(chatOperationsReady.body.runtime_readiness.summary).toContain('Runtime is ready');
         expect(chatRun.body.run_id).toBe(chatRun.body.runId);
@@ -1054,6 +1107,57 @@ describe('createWebServer', () => {
     }
   });
 
+  it('reports chat operations readiness as blocked when only GRAPH_DATABASE_URL is missing', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-runtime-key\n', 'utf8');
+
+      const server = createWebServer(root);
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const chatOperations = await fetchJson<{
+          runtime_readiness: {
+            ready: boolean;
+            status: string;
+            configured_api_key_env: string;
+            project_env_has_configured_key: boolean;
+            project_env_has_graph_database_url: boolean;
+            summary: string;
+            issues: string[];
+          };
+        }>(`${baseUrl}/api/chat/operations`);
+
+        expect(chatOperations.status).toBe(200);
+        expect(chatOperations.body.runtime_readiness).toMatchObject({
+          ready: false,
+          status: 'missing_graph_database_url',
+          configured_api_key_env: 'RUNTIME_API_KEY',
+          project_env_has_configured_key: true,
+          project_env_has_graph_database_url: false
+        });
+        expect(chatOperations.body.runtime_readiness.issues).toEqual(['Project .env is missing GRAPH_DATABASE_URL.']);
+        expect(chatOperations.body.runtime_readiness.summary).toBe(
+          'Runtime is blocked until GRAPH_DATABASE_URL is set in the project .env.'
+        );
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns actionable preflight and runtime failure responses for chat runs', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
 
@@ -1274,6 +1378,212 @@ describe('createWebServer', () => {
     }
   });
 });
+
+function buildTopicGraphProjectionInput(slug: string) {
+  const taxonomy = createGraphNode({
+    id: 'taxonomy:engineering',
+    kind: 'taxonomy',
+    title: 'Engineering',
+    summary: 'Shared engineering taxonomy.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const topic = createGraphNode({
+    id: `topic:${slug}`,
+    kind: 'topic',
+    title: 'Patch First',
+    summary: 'Patch-first summary.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const section = createGraphNode({
+    id: 'section:patch-first-overview',
+    kind: 'section',
+    title: 'Patch First Overview',
+    summary: 'Overview section.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const entity = createGraphNode({
+    id: 'entity:graph-reader',
+    kind: 'entity',
+    title: 'Graph Reader',
+    summary: 'Topic graph reader.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {},
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const assertion = createGraphNode({
+    id: 'assertion:patch-first-stability',
+    kind: 'assertion',
+    title: 'Patch First Stability',
+    summary: 'Patch-first updates keep the reading path stable.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      statement: 'Patch-first updates keep the reading path stable.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const evidence = createGraphNode({
+    id: 'evidence:patch-first-spec',
+    kind: 'evidence',
+    title: 'Patch First spec excerpt',
+    summary: 'Evidence summary.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'source-derived',
+    review_state: 'reviewed',
+    attributes: {
+      locator: 'spec.md#stable',
+      excerpt: 'Patch-first updates keep page structure stable.'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+  const source = createGraphNode({
+    id: 'source:patch-first-spec',
+    kind: 'source',
+    title: 'Patch First Spec',
+    summary: 'Original spec.',
+    status: 'active',
+    confidence: 'asserted',
+    provenance: 'human-edited',
+    review_state: 'reviewed',
+    attributes: {
+      path: 'raw/accepted/patch-first-spec.md'
+    },
+    created_at: '2026-04-20T00:00:00.000Z',
+    updated_at: '2026-04-20T00:00:00.000Z'
+  });
+
+  return {
+    rootId: topic.id,
+    nodes: [taxonomy, topic, section, entity, assertion, evidence, source],
+    edges: [
+      createGraphEdge({
+        edge_id: 'edge:belongs-to-taxonomy:patch-first',
+        from_id: topic.id,
+        from_kind: 'topic',
+        type: 'belongs_to_taxonomy',
+        to_id: taxonomy.id,
+        to_kind: 'taxonomy',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:part-of:patch-first',
+        from_id: section.id,
+        from_kind: 'section',
+        type: 'part_of',
+        to_id: topic.id,
+        to_kind: 'topic',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:grounded-by:patch-first',
+        from_id: section.id,
+        from_kind: 'section',
+        type: 'grounded_by',
+        to_id: evidence.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:mentions:patch-first',
+        from_id: topic.id,
+        from_kind: 'topic',
+        type: 'mentions',
+        to_id: entity.id,
+        to_kind: 'entity',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:about:patch-first',
+        from_id: assertion.id,
+        from_kind: 'assertion',
+        type: 'about',
+        to_id: topic.id,
+        to_kind: 'topic',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:supported-by:patch-first',
+        from_id: assertion.id,
+        from_kind: 'assertion',
+        type: 'supported_by',
+        to_id: evidence.id,
+        to_kind: 'evidence',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'human-edited',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      }),
+      createGraphEdge({
+        edge_id: 'edge:derived-from:patch-first',
+        from_id: evidence.id,
+        from_kind: 'evidence',
+        type: 'derived_from',
+        to_id: source.id,
+        to_kind: 'source',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'source-derived',
+        review_state: 'reviewed',
+        created_at: '2026-04-20T00:00:00.000Z',
+        updated_at: '2026-04-20T00:00:00.000Z'
+      })
+    ]
+  };
+}
 
 async function fetchText(url: string, init?: RequestInit): Promise<string> {
   const response = await fetch(url, init);

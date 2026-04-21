@@ -109,6 +109,7 @@ liveDescribe('live llm-wiki-liiy web runtime', () => {
               status: string;
               configured_api_key_env: string;
               project_env_has_configured_key: boolean;
+              project_env_has_graph_database_url: boolean;
             };
           }>(`${baseUrl}/api/chat/operations`);
           expect(operations.status).toBe(200);
@@ -116,7 +117,8 @@ liveDescribe('live llm-wiki-liiy web runtime', () => {
             ready: true,
             status: 'ready',
             configured_api_key_env: 'RUNTIME_API_KEY',
-            project_env_has_configured_key: true
+            project_env_has_configured_key: true,
+            project_env_has_graph_database_url: true
           });
 
           const launched = await fetchJson<{
