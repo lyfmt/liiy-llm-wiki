@@ -95,7 +95,35 @@ export async function markChatAttachmentPersisted(root: string, attachmentId: st
     original_rel_path: attachment.original_rel_path,
     markdown_rel_path: attachment.markdown_rel_path,
     markdown_char_count: attachment.markdown_char_count,
-    expires_at: attachment.expires_at
+    expires_at: attachment.expires_at,
+    knowledge_insert_pipeline_run_id: attachment.knowledge_insert_pipeline_run_id
+  });
+  const paths = buildChatAttachmentArtifactPaths(root, attachmentId);
+
+  await writeFile(paths.metadata, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
+  return updated;
+}
+
+export async function markChatAttachmentKnowledgeInsertPipeline(
+  root: string,
+  attachmentId: string,
+  pipelineRunId: string
+): Promise<ChatAttachmentRecord> {
+  const attachment = await loadChatAttachment(root, attachmentId);
+  const updated = createChatAttachmentRecord({
+    attachment_id: attachment.attachment_id,
+    file_name: attachment.file_name,
+    mime_type: attachment.mime_type,
+    kind: attachment.kind,
+    session_id: attachment.session_id,
+    created_at: attachment.created_at,
+    status: attachment.status,
+    size_bytes: attachment.size_bytes,
+    original_rel_path: attachment.original_rel_path,
+    markdown_rel_path: attachment.markdown_rel_path,
+    markdown_char_count: attachment.markdown_char_count,
+    expires_at: attachment.expires_at,
+    knowledge_insert_pipeline_run_id: pipelineRunId
   });
   const paths = buildChatAttachmentArtifactPaths(root, attachmentId);
 
@@ -194,6 +222,7 @@ function assertChatAttachmentRecord(value: unknown, fileName: string): ChatAttac
     || typeof value.markdown_rel_path !== 'string'
     || typeof value.markdown_char_count !== 'number'
     || typeof value.expires_at !== 'string'
+    || (value.knowledge_insert_pipeline_run_id !== undefined && typeof value.knowledge_insert_pipeline_run_id !== 'string')
   ) {
     throw new Error(`Invalid chat attachment state: invalid ${fileName}`);
   }
@@ -210,7 +239,8 @@ function assertChatAttachmentRecord(value: unknown, fileName: string): ChatAttac
     original_rel_path: value.original_rel_path,
     markdown_rel_path: value.markdown_rel_path,
     markdown_char_count: value.markdown_char_count,
-    expires_at: value.expires_at
+    expires_at: value.expires_at,
+    knowledge_insert_pipeline_run_id: value.knowledge_insert_pipeline_run_id
   });
 }
 
