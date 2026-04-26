@@ -25,28 +25,28 @@ export function RawReadingPage() {
   }, [highlightedLines, data]);
 
   return (
-    <ShellContainer className="h-screen min-h-0 overflow-hidden bg-[#F7FCFF]">
+    <ShellContainer className="h-screen min-h-0 overflow-hidden bg-slate-50">
       <div className="flex h-screen min-h-0 flex-col">
-        <header className="shrink-0 border-b border-[#D8EAF7] bg-[#EAF6FF] px-6 py-4">
+        <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
           <div className="mx-auto flex max-w-7xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <a
                 href="/app/raw"
-                className="inline-flex items-center gap-2 rounded-[8px] px-2 py-1 text-sm font-semibold text-[#5D7285] transition hover:bg-white/70 hover:text-[#17324A]"
+                className="inline-flex items-center gap-2 rounded-[8px] px-2 py-1 text-sm font-semibold text-brand transition hover:bg-blue-50 hover:text-blue-700"
               >
                 <ArrowLeft size={16} />
                 Raw
               </a>
               <div className="mt-4 flex min-w-0 items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] bg-white text-[#2479B5] shadow-sm">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-blue-50 text-brand">
                   <FileText size={21} />
                 </span>
                 <div className="min-w-0">
-                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#3BAAEF]">
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand">
                     <Database size={14} />
                     Raw Reader
                   </p>
-                  <h1 className="mt-1 truncate text-2xl font-semibold text-[#17324A]">{data?.title ?? 'Raw 资源'}</h1>
+                  <h1 className="mt-1 truncate text-2xl font-semibold text-slate-900">{data?.title ?? 'Raw 资源'}</h1>
                 </div>
               </div>
             </div>
@@ -75,9 +75,9 @@ export function RawReadingPage() {
 
           {data && !loading && !error ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <aside className="min-h-0 overflow-y-auto border-r border-[#D8EAF7] bg-white px-5 py-6">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#3BAAEF]">Source</p>
-                <h2 className="mt-2 text-lg font-semibold text-[#17324A]">{data.title}</h2>
+              <aside className="min-h-0 overflow-y-auto border-r border-slate-200 bg-white px-5 py-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">Source</p>
+                <h2 className="mt-2 text-lg font-semibold text-slate-900">{data.title}</h2>
                 <dl className="mt-5 space-y-4 text-sm">
                   <Info label="Raw path" value={data.raw_path} />
                   <Info label="Type" value={data.type} />
@@ -86,23 +86,23 @@ export function RawReadingPage() {
                 {data.tags.length > 0 ? (
                   <div className="mt-6 flex flex-wrap gap-2">
                     {data.tags.map((tag) => (
-                      <span key={tag} className="rounded-full bg-[#EAF6FF] px-3 py-1 text-xs font-semibold text-[#2479B5]">
+                      <span key={tag} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-brand">
                         {tag}
                       </span>
                     ))}
                   </div>
                 ) : null}
                 {highlightedLines.length > 0 ? (
-                  <div className="mt-6 rounded-[8px] bg-[#F0FAF6] px-4 py-3 text-sm text-[#3B7A5B]">
+                  <div className="mt-6 rounded-[10px] bg-blue-50 px-4 py-3 text-sm text-brand">
                     已定位到第 {highlightedLines[0]} 行
                     {highlightedLines.length > 1 ? ` - ${highlightedLines.at(-1)}` : ''}
                   </div>
                 ) : null}
               </aside>
 
-              <section className="min-h-0 overflow-y-auto bg-[#F7FCFF] px-5 py-6">
-                <div className="mx-auto max-w-5xl overflow-hidden rounded-[8px] bg-white shadow-sm ring-1 ring-[#D8EAF7]">
-                  <div className="border-b border-[#D8EAF7] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#6D8292]">
+              <section className="min-h-0 overflow-y-auto bg-slate-50 px-5 py-6">
+                <div className="mx-auto max-w-5xl overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-xl shadow-slate-200/50">
+                  <div className="border-b border-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                     Readonly Text
                   </div>
                   <div className="font-mono text-sm leading-6">
@@ -116,10 +116,10 @@ export function RawReadingPage() {
                           id={`raw-line-${lineNumber}`}
                           className={highlighted ? 'grid grid-cols-[64px_minmax(0,1fr)] bg-[#FFF8D6]' : 'grid grid-cols-[64px_minmax(0,1fr)]'}
                         >
-                          <div className="select-none border-r border-[#E6F1F8] bg-[#F5FBFF] px-3 py-1 text-right text-[#8BA6B8]">
+                          <div className="select-none border-r border-slate-100 bg-slate-50 px-3 py-1 text-right text-slate-300">
                             {lineNumber}
                           </div>
-                          <pre className="overflow-x-auto whitespace-pre-wrap px-4 py-1 text-[#17324A]">{line || ' '}</pre>
+                          <pre className="overflow-x-auto whitespace-pre-wrap px-4 py-1 text-slate-700">{line || ' '}</pre>
                         </div>
                       );
                     })}
@@ -138,9 +138,9 @@ export function RawReadingPage() {
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[8px] bg-white px-4 py-3 shadow-sm ring-1 ring-[#D8EAF7]">
-      <p className="text-xs font-semibold text-[#6D8292]">{label}</p>
-      <p className="mt-1 truncate font-semibold text-[#17324A]">{value}</p>
+    <div className="rounded-[12px] bg-slate-50 px-4 py-3">
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className="mt-1 truncate font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
@@ -148,11 +148,11 @@ function Meta({ label, value }: { label: string; value: string }) {
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#8BA6B8]">
+      <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
         <Hash size={12} />
         {label}
       </dt>
-      <dd className="mt-1 break-words text-[#315C7A]">{value}</dd>
+      <dd className="mt-1 break-words text-slate-600">{value}</dd>
     </div>
   );
 }
