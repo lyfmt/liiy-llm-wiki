@@ -1,28 +1,19 @@
 import type { ReactNode } from 'react';
-import { Orbit, Sparkles } from 'lucide-react';
+import { Database, FileText, MessageSquare, Orbit, Settings } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
 export function SkyBackground() {
   return (
-    <div className="absolute inset-0 overflow-hidden -z-10 bg-gradient-to-b from-[#1a2980] via-[#5b4d9c] to-[#ffb7c5]">
-      <svg className="absolute left-10 top-10 h-32 w-96 opacity-30" viewBox="0 0 200 100" aria-hidden="true">
-        <path d="M 50 50 A 20 20 0 0 1 90 50 A 30 30 0 0 1 150 50 A 20 20 0 0 1 190 60 L 10 60 A 10 10 0 0 1 50 50" fill="#ffffff" filter="blur(4px)" />
-      </svg>
-      <svg className="absolute right-10 top-32 h-48 w-[500px] opacity-40" viewBox="0 0 200 100" aria-hidden="true">
-        <path d="M 30 60 A 30 30 0 0 1 80 40 A 40 40 0 0 1 160 50 A 25 25 0 0 1 210 70 L -10 70 A 15 15 0 0 1 30 60" fill="#ffebf0" filter="blur(6px)" />
-      </svg>
-      <div
-        className="absolute inset-0 opacity-10"
-        style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }}
-        aria-hidden="true"
-      />
-      <div className="absolute bottom-[-100px] left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-[#66CCFF] opacity-40 blur-[120px] mix-blend-screen" />
-      <div className="absolute bottom-0 left-0 h-[15vh] w-full bg-gradient-to-t from-[#0a0f1d] to-[#1c2833]">
-        <svg className="absolute bottom-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 1000 100" aria-hidden="true">
-          <path d="M0,100 L0,20 Q250,80 500,40 T1000,10 L1000,100 Z" fill="#1C2833" />
-          <path d="M0,100 L0,40 Q300,100 600,50 T1000,30 L1000,100 Z" fill="#111822" />
-        </svg>
+    <div className="absolute inset-0 -z-10 overflow-hidden bg-slate-50">
+      <div className="absolute left-10 top-1/4 opacity-20" aria-hidden="true">
+        <div className="h-40 w-32 -rotate-12 rounded-[8px] border-2 border-slate-300" />
+        <div className="absolute left-0 top-0 h-40 w-32 rounded-[8px] border-2 border-slate-300 bg-white shadow-xl" />
+      </div>
+      <div className="absolute right-12 top-1/3 scale-150 opacity-10" aria-hidden="true">
+        <div className="flex h-48 w-48 items-center justify-center rounded-full border-2 border-slate-400">
+          <div className="h-24 w-24 rounded-[8px] border-2 border-slate-400" />
+        </div>
       </div>
     </div>
   );
@@ -54,19 +45,19 @@ export function GlassTopNav({
 export function FloatingAssistantButton({ href = '/app/ai-chat' }: { href?: string }) {
   return (
     <a href={href} className="group fixed bottom-8 right-8 z-50 block cursor-pointer">
-      <div className="pointer-events-none absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[8px] bg-white px-3 py-1 text-sm font-semibold text-[#1C2833] opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[8px] bg-white px-3 py-1 text-sm font-semibold text-slate-800 opacity-0 shadow-md transition-opacity group-hover:opacity-100">
         AI 助手
         <div className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-white" />
       </div>
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#66CCFF] text-white shadow-[0_4px_20px_rgba(102,204,255,0.15)] transition-all hover:scale-105 hover:bg-[#4DB8FF] shadow-[0_8px_30px_rgba(102,204,255,0.4)]">
-        <Sparkles size={28} />
+      <div className="flex h-16 w-16 items-center justify-center rounded-[18px] bg-brand text-white shadow-2xl shadow-blue-500/30 transition-all hover:scale-105 hover:bg-blue-700">
+        <MessageSquare size={28} />
       </div>
     </a>
   );
 }
 
 export function ShellContainer({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('relative min-h-screen overflow-hidden bg-[#F0F8FF] font-sans text-[#1C2833]', className)}>{children}</div>;
+  return <div className={cn('relative min-h-screen bg-slate-50 font-sans text-slate-900', className)}>{children}</div>;
 }
 
 export function SectionHeading({ eyebrow, title, description }: { eyebrow?: string; title: string; description?: string }) {
@@ -76,5 +67,45 @@ export function SectionHeading({ eyebrow, title, description }: { eyebrow?: stri
       <h2 className="mt-2 text-3xl font-bold text-[#1C2833] md:text-4xl">{title}</h2>
       {description ? <p className="mt-3 max-w-2xl text-sm leading-7 text-[#5D6D7E] md:text-base">{description}</p> : null}
     </div>
+  );
+}
+
+export function ZipTopNav({ active }: { active?: 'home' | 'knowledge' | 'raw' | 'settings' }) {
+  const items = [
+    { id: 'knowledge', href: '/app/kb', label: 'Knowledge', icon: Database },
+    { id: 'raw', href: '/app/raw', label: 'Raw', icon: FileText },
+    { id: 'settings', href: '/app/console', label: 'Settings/Admin', icon: Settings }
+  ] as const;
+
+  return (
+    <nav className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-slate-100 bg-white/85 px-6 backdrop-blur-md md:px-12">
+      <a href="/app" className="group flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-brand text-white shadow-sm ring-2 ring-blue-100">
+          <Orbit size={20} />
+        </div>
+        <span className="text-xl font-bold tracking-tight text-slate-900 transition-colors group-hover:text-brand">
+          LLM-Wiki-Liiy
+        </span>
+      </a>
+      <div className="flex items-center gap-2 md:gap-8">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const isActive = active === item.id;
+          return (
+            <a
+              key={item.id}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm font-semibold transition-colors',
+                isActive ? 'bg-blue-50 text-brand' : 'text-slate-600 hover:bg-slate-50 hover:text-brand'
+              )}
+            >
+              <Icon size={17} />
+              <span className="hidden sm:inline">{item.label}</span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
