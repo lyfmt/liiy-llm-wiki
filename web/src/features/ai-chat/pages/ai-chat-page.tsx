@@ -256,7 +256,8 @@ export function AiChatPage() {
           sessionId: selectedSessionId || undefined,
           fileName: file.name,
           mimeType: file.type || inferMimeTypeFromName(file.name),
-          dataBase64: await fileToBase64(file)
+          dataBase64: await fileToBase64(file),
+          autoKnowledgeInsert: true
         });
 
         uploaded.push({

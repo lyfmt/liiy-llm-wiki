@@ -73,7 +73,9 @@ name: broken-skill
 
   it('discovers the project knowledge-insert skill', async () => {
     const result = await discoverRuntimeSkills(process.cwd());
+    const knowledgeInsert = result.skills.find((skill) => skill.name === 'knowledge-insert');
 
-    expect(result.skills.map((skill) => skill.name)).toContain('knowledge-insert');
+    expect(knowledgeInsert).toBeDefined();
+    expect(knowledgeInsert?.allowedTools).toEqual(['start_knowledge_insert_pipeline']);
   });
 });

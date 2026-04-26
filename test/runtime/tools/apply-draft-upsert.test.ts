@@ -47,4 +47,43 @@ describe('createApplyDraftUpsertTool', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('applies taxonomy draft payloads into wiki/taxonomy and rebuilds navigation', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-apply-draft-taxonomy-'));
+
+    try {
+      await bootstrapProject(root);
+      const tool = createApplyDraftUpsertTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-apply-draft-taxonomy-001'
+        })
+      );
+
+      const result = await tool.execute('tool-call-taxonomy-1', {
+        targetPath: 'wiki/taxonomy/engineering.md',
+        upsertArguments: {
+          kind: 'taxonomy',
+          slug: 'engineering',
+          title: 'Engineering',
+          summary: 'Shared engineering taxonomy.',
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z',
+          body: '# Engineering\n\nShared engineering taxonomy.\n',
+          rationale: 'capture durable taxonomy',
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          aliases: [],
+          tags: ['taxonomy']
+        }
+      });
+
+      expect(result.details.toolName).toBe('apply_draft_upsert');
+      expect(result.details.resultMarkdown).toContain('Draft target: wiki/taxonomy/engineering.md');
+      expect(result.details.touchedFiles).toEqual(['wiki/taxonomy/engineering.md', 'wiki/index.md', 'wiki/log.md']);
+      expect((await loadKnowledgePage(root, 'taxonomy', 'engineering')).page.title).toBe('Engineering');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

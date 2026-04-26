@@ -25,6 +25,20 @@ import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
 const liveApiKey = process.env.RUNTIME_API_KEY?.trim();
 const liveDescribe = liveApiKey ? describe : describe.skip;
 const LIVE_TIMEOUT_MS = 240_000;
+const KNOWLEDGE_INSERT_SKILL_SOURCE = new URL('../../.agents/skills/knowledge-insert/SKILL.md', import.meta.url);
+const WORKER_SUBAGENT_SOURCE = new URL('../../.agents/subagents/worker/SUBAGENT.md', import.meta.url);
+const REVIEWER_SUBAGENT_SOURCE = new URL('../../.agents/subagents/reviewer/SUBAGENT.md', import.meta.url);
+const KNOWLEDGE_INSERT_RUN_ID = 'run-insert-001';
+const KNOWLEDGE_INSERT_MAIN_ARTIFACT_ROOT = `state/artifacts/knowledge-insert/${KNOWLEDGE_INSERT_RUN_ID}`;
+const KNOWLEDGE_INSERT_MAIN_RESOURCE_ARTIFACT = `${KNOWLEDGE_INSERT_MAIN_ARTIFACT_ROOT}/resource.json`;
+const KNOWLEDGE_INSERT_MAIN_TOPIC_PLAN_ARTIFACT = `${KNOWLEDGE_INSERT_MAIN_ARTIFACT_ROOT}/topic-plan.json`;
+const WORKER_SUBAGENT_RUN_ID = `${KNOWLEDGE_INSERT_RUN_ID}--worker-1`;
+const WORKER_OUTPUT_DIR = `state/artifacts/subagents/${WORKER_SUBAGENT_RUN_ID}`;
+const WORKER_INPUT_ARTIFACT = `${WORKER_OUTPUT_DIR}/input/topic-plan.json`;
+const WORKER_DRAFT_ARTIFACT = `${WORKER_OUTPUT_DIR}/topic-draft.json`;
+const REVIEWER_SUBAGENT_RUN_ID = `${KNOWLEDGE_INSERT_RUN_ID}--reviewer-1`;
+const REVIEWER_OUTPUT_DIR = `state/artifacts/subagents/${REVIEWER_SUBAGENT_RUN_ID}`;
+const REVIEWER_REVIEW_ARTIFACT = `${REVIEWER_OUTPUT_DIR}/review.json`;
 
 interface JsonResponse<T> {
   status: number;
@@ -32,29 +46,27 @@ interface JsonResponse<T> {
 }
 
 describe('stub knowledge insert runtime', () => {
-  it('applies the governed draft only after the reviewer subagent passes', async () => {
+  it('exposes knowledge insert as a V3 pipeline shim instead of the legacy subagent workflow', async () => {
     const passed = await runKnowledgeInsertGovernedStubScenario('done');
     const failed = await runKnowledgeInsertGovernedStubScenario('needs_review');
 
     try {
-      expect(await readFile(path.join(passed.root, 'state', 'artifacts', 'subagents', 'run-insert-001--writer-1', 'draft.md'), 'utf8')).toContain(
-        'Patch First Inserted'
-      );
-      expect(passed.result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
-      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent worker');
-      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent reviewer');
-      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('apply_draft_upsert');
-      expect(passed.result.toolOutcomes[1]?.resultMarkdown).toContain('lint_wiki');
-      expect(await readFile(path.join(passed.root, 'wiki', 'topics', 'patch-first-inserted.md'), 'utf8')).toContain(
-        '# Patch First Inserted'
-      );
+      for (const scenario of [passed, failed]) {
+        expect(scenario.result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
+        expect(scenario.result.toolOutcomes[0]?.resultMarkdown).toContain('Knowledge Insert Deprecated Shim');
+        expect(scenario.result.toolOutcomes[0]?.resultMarkdown).toContain('start_knowledge_insert_pipeline');
+        expect(scenario.result.toolOutcomes[0]?.resultMarkdown).toContain('system-owned V3 pipeline');
+        expect(scenario.result.toolOutcomes[0]?.resultMarkdown).not.toContain('run_subagent');
+        expect(scenario.result.toolOutcomes[0]?.resultMarkdown).not.toContain('apply_draft_upsert');
+        expect(scenario.result.toolOutcomes[1]?.resultMarkdown).toContain('Allowed tools: start_knowledge_insert_pipeline');
+        expect(scenario.result.toolOutcomes[1]?.resultMarkdown).not.toContain('run_subagent: ran subagent');
+        expect(scenario.result.toolOutcomes[1]?.resultMarkdown).not.toContain('apply_draft_upsert');
+        expect(scenario.result.toolOutcomes[1]?.resultMarkdown).not.toContain('lint_wiki');
+        await expect(readFile(path.join(scenario.root, WORKER_DRAFT_ARTIFACT), 'utf8')).rejects.toThrow();
+        await expect(readFile(path.join(scenario.root, REVIEWER_REVIEW_ARTIFACT), 'utf8')).rejects.toThrow();
+        await expect(readFile(path.join(scenario.root, 'wiki', 'topics', 'patch-first-inserted.md'), 'utf8')).rejects.toThrow();
+      }
 
-      expect(await readFile(path.join(failed.root, 'state', 'artifacts', 'subagents', 'run-insert-001--writer-1', 'draft.md'), 'utf8')).toContain(
-        'Patch First Inserted'
-      );
-      expect(failed.result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
-      expect(failed.result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent: ran subagent reviewer');
-      expect(failed.result.toolOutcomes[1]?.resultMarkdown).not.toContain('- apply_draft_upsert:');
       await expect(readFile(path.join(failed.root, 'wiki', 'topics', 'patch-first-inserted.md'), 'utf8')).rejects.toThrow();
     } finally {
       await passed.cleanup();
@@ -691,49 +703,19 @@ async function runKnowledgeInsertGovernedStubScenario(reviewerStatus: 'done' | '
   await mkdir(path.join(root, '.agents', 'skills', 'knowledge-insert'), { recursive: true });
   await writeFile(
     path.join(root, '.agents', 'skills', 'knowledge-insert', 'SKILL.md'),
-    `---
-name: knowledge-insert
-description: Insert governed knowledge drafts into the wiki.
-allowed-tools:
-  - run_subagent
-  - read_artifact
-  - draft_knowledge_page
-  - apply_draft_upsert
-  - lint_wiki
----
-
-# Knowledge Insert
-`,
+    await readFile(KNOWLEDGE_INSERT_SKILL_SOURCE, 'utf8'),
     'utf8'
   );
   await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
   await writeFile(
     path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
-    `---
-name: worker
-description: Writer subagent for draft preparation.
-default-tools: read_artifact write_artifact
-max-tools: read_artifact write_artifact
-receipt-schema: minimal-receipt-v1
----
-
-# Worker
-`,
+    await readFile(WORKER_SUBAGENT_SOURCE, 'utf8'),
     'utf8'
   );
   await mkdir(path.join(root, '.agents', 'subagents', 'reviewer'), { recursive: true });
   await writeFile(
     path.join(root, '.agents', 'subagents', 'reviewer', 'SUBAGENT.md'),
-    `---
-name: reviewer
-description: Reviewer subagent for governed drafts.
-default-tools: read_artifact
-max-tools: read_artifact
-receipt-schema: minimal-receipt-v1
----
-
-# Reviewer
-`,
+    await readFile(REVIEWER_SUBAGENT_SOURCE, 'utf8'),
     'utf8'
   );
   await writeFile(
@@ -741,37 +723,113 @@ receipt-schema: minimal-receipt-v1
     '# Design\n\nPatch-first insertions stay grounded in observed evidence.\n',
     'utf8'
   );
-  await mkdir(path.join(root, 'state', 'artifacts', 'subagents', 'input'), { recursive: true });
+  await mkdir(path.join(root, path.dirname(KNOWLEDGE_INSERT_MAIN_RESOURCE_ARTIFACT)), { recursive: true });
   await writeFile(
-    path.join(root, 'state', 'artifacts', 'subagents', 'input', 'blocks.json'),
-    '{\n  "blocks": [\n    { "blockId": "block-001" }\n  ]\n}\n',
+    path.join(root, KNOWLEDGE_INSERT_MAIN_RESOURCE_ARTIFACT),
+    '{\n  "manifestId": "src-design-001",\n  "rawPath": "raw/accepted/design.md"\n}\n',
+    'utf8'
+  );
+  await writeFile(
+    path.join(root, KNOWLEDGE_INSERT_MAIN_TOPIC_PLAN_ARTIFACT),
+    `${JSON.stringify(
+      {
+        topics: [
+          {
+            topicSlug: 'patch-first-inserted',
+            action: 'create-topic',
+            sections: [
+              {
+                sectionId: 'section-001',
+                title: 'Pattern Intent',
+                action: 'append-section',
+                summary: 'Observed evidence remains grounded in raw/accepted/design.md.'
+              }
+            ],
+            conflicts: []
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await mkdir(path.join(root, path.dirname(WORKER_INPUT_ARTIFACT)), { recursive: true });
+  await writeFile(
+    path.join(root, WORKER_INPUT_ARTIFACT),
+    `${JSON.stringify(
+      {
+        topics: [
+          {
+            topicSlug: 'patch-first-inserted',
+            action: 'create-topic',
+            sections: [
+              {
+                sectionId: 'section-001',
+                title: 'Pattern Intent',
+                action: 'append-section',
+                summary: 'Observed evidence remains grounded in raw/accepted/design.md.'
+              }
+            ],
+            conflicts: []
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
     'utf8'
   );
 
   faux.setResponses([
     buildSingleToolCallingAssistantMessage('tool-call-live-run-writer-1', 'run_subagent', {
       profile: 'worker',
-      taskPrompt: 'Write a grounded draft artifact for the proposed knowledge page.',
-      inputArtifacts: ['state/artifacts/subagents/input/blocks.json'],
-      outputDir: 'state/artifacts/subagents/run-insert-001--writer-1',
+      taskPrompt: 'Write a grounded topic draft artifact from the topic insertion plan.',
+      inputArtifacts: [WORKER_INPUT_ARTIFACT],
+      outputDir: WORKER_OUTPUT_DIR,
       requestedTools: ['read_artifact', 'write_artifact']
     }),
     buildSingleToolCallingAssistantMessage('tool-call-live-writer-read-1', 'read_artifact', {
-      artifactPath: 'state/artifacts/subagents/input/blocks.json'
+      artifactPath: WORKER_INPUT_ARTIFACT
     }),
     buildSingleToolCallingAssistantMessage('tool-call-live-writer-write-1', 'write_artifact', {
-      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md',
-      content: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n'
+      artifactPath: WORKER_DRAFT_ARTIFACT,
+      content: JSON.stringify(
+        {
+          topics: [
+            {
+              topicSlug: 'patch-first-inserted',
+              title: 'Patch First Inserted',
+              summary: 'Observed evidence for the inserted patch-first topic.',
+              rationale: 'capture durable inserted knowledge',
+              source_refs: ['raw/accepted/design.md'],
+              outgoing_links: [],
+              aliases: [],
+              tags: ['patch-first', 'inserted'],
+              sections: [
+                {
+                  sectionId: 'section-001',
+                  title: 'Pattern Intent',
+                  body: 'Observed evidence remains grounded in raw/accepted/design.md.',
+                  sourceRefs: ['raw/accepted/design.md']
+                }
+              ]
+            }
+          ]
+        },
+        null,
+        2
+      )
     }),
     fauxAssistantMessage(
       JSON.stringify({
         status: 'done',
-        summary: 'Writer produced a governed draft artifact.',
-        outputArtifacts: ['state/artifacts/subagents/run-insert-001--writer-1/draft.md']
+        summary: 'Writer produced a topic draft artifact.',
+        outputArtifacts: [WORKER_DRAFT_ARTIFACT]
       })
     ),
     buildSingleToolCallingAssistantMessage('tool-call-live-read-draft-1', 'read_artifact', {
-      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md'
+      artifactPath: WORKER_DRAFT_ARTIFACT
     }),
     buildSingleToolCallingAssistantMessage('tool-call-live-draft-page-1', 'draft_knowledge_page', {
       kind: 'topic',
@@ -779,7 +837,7 @@ receipt-schema: minimal-receipt-v1
       title: 'Patch First Inserted',
       summary: 'Observed evidence for the inserted patch-first topic.',
       status: 'active',
-      body: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
+      body: '# Patch First Inserted\n\n## Pattern Intent\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
       rationale: 'capture durable inserted knowledge',
       source_refs: ['raw/accepted/design.md'],
       outgoing_links: [],
@@ -788,23 +846,42 @@ receipt-schema: minimal-receipt-v1
     }),
     buildSingleToolCallingAssistantMessage('tool-call-live-run-reviewer-1', 'run_subagent', {
       profile: 'reviewer',
-      taskPrompt: 'Review the proposed draft artifact and return a receipt.',
-      inputArtifacts: ['state/artifacts/subagents/run-insert-001--writer-1/draft.md'],
-      outputDir: 'state/artifacts/subagents/run-insert-001--reviewer-1'
+      taskPrompt: 'Review the proposed topic draft artifact and verify section granularity is preserved.',
+      inputArtifacts: [WORKER_DRAFT_ARTIFACT],
+      outputDir: REVIEWER_OUTPUT_DIR,
+      requestedTools: ['write_artifact']
     }),
     buildSingleToolCallingAssistantMessage('tool-call-live-reviewer-read-1', 'read_artifact', {
-      artifactPath: 'state/artifacts/subagents/run-insert-001--writer-1/draft.md'
+      artifactPath: WORKER_DRAFT_ARTIFACT
+    }),
+    buildSingleToolCallingAssistantMessage('tool-call-live-reviewer-write-1', 'write_artifact', {
+      artifactPath: REVIEWER_REVIEW_ARTIFACT,
+      content: JSON.stringify(
+        {
+          status: reviewerStatus,
+          summary:
+            reviewerStatus === 'done'
+              ? 'Reviewer confirmed the topic draft stays source-grounded and preserves section granularity.'
+              : 'Reviewer found the topic draft is not ready or section granularity was lost.',
+          sectionGranularityPreserved: reviewerStatus === 'done'
+        },
+        null,
+        2
+      )
     }),
     fauxAssistantMessage(
       JSON.stringify({
         status: reviewerStatus,
         summary:
           reviewerStatus === 'done'
-            ? 'Reviewer confirmed the draft stays source-grounded.'
-            : 'Reviewer could not confirm the draft is source-grounded.',
-        outputArtifacts: []
+            ? 'Reviewer confirmed the topic draft stays source-grounded and preserves section granularity.'
+            : 'Reviewer found the topic draft is not ready or section granularity was lost.',
+        outputArtifacts: [REVIEWER_REVIEW_ARTIFACT]
       })
     ),
+    buildSingleToolCallingAssistantMessage('tool-call-live-read-review-1', 'read_artifact', {
+      artifactPath: REVIEWER_REVIEW_ARTIFACT
+    }),
     ...(reviewerStatus === 'done'
       ? [
           buildSingleToolCallingAssistantMessage('tool-call-live-apply-draft-1', 'apply_draft_upsert', {
@@ -816,7 +893,7 @@ receipt-schema: minimal-receipt-v1
               summary: 'Observed evidence for the inserted patch-first topic.',
               status: 'active',
               updated_at: '2026-04-21T00:00:00.000Z',
-              body: '# Patch First Inserted\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
+              body: '# Patch First Inserted\n\n## Pattern Intent\n\nObserved evidence remains grounded in raw/accepted/design.md.\n',
               rationale: 'capture durable inserted knowledge',
               source_refs: ['raw/accepted/design.md'],
               outgoing_links: [],

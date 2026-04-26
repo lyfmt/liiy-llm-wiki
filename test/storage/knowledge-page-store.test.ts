@@ -175,6 +175,21 @@ describe('knowledge page storage', () => {
       body: '# Anthropic\n\nEntity page.\n'
     },
     {
+      kind: 'taxonomy',
+      slug: 'engineering',
+      page: createKnowledgePage({
+        path: 'wiki/taxonomy/engineering.md',
+        kind: 'taxonomy',
+        title: 'Engineering',
+        aliases: ['Software Engineering'],
+        source_refs: ['raw/accepted/design.md'],
+        outgoing_links: ['wiki/topics/patch-first.md'],
+        status: 'active',
+        updated_at: '2026-04-12T00:00:00.000Z'
+      }),
+      body: '# Engineering\n\nTaxonomy page.\n'
+    },
+    {
       kind: 'query',
       slug: 'what-is-patch-first',
       page: createKnowledgePage({

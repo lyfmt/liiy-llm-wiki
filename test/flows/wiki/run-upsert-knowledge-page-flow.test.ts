@@ -103,4 +103,39 @@ describe('runUpsertKnowledgePageFlow', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('persists taxonomy pages into wiki/taxonomy and updates navigation artifacts', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-upsert-page-taxonomy-'));
+
+    try {
+      await bootstrapProject(root);
+
+      const result = await runUpsertKnowledgePageFlow(root, {
+        runId: 'run-upsert-taxonomy-001',
+        userRequest: 'create a taxonomy page',
+        kind: 'taxonomy',
+        slug: 'engineering',
+        title: 'Engineering',
+        summary: 'Shared engineering taxonomy.',
+        tags: ['taxonomy'],
+        source_refs: ['raw/accepted/design.md'],
+        outgoing_links: [],
+        status: 'active',
+        updated_at: '2026-04-23T00:00:00.000Z',
+        body: '# Engineering\n\nShared engineering taxonomy.\n',
+        rationale: 'capture a durable taxonomy page'
+      });
+
+      expect(result.review).toEqual({ needs_review: false, reasons: [] });
+      expect(result.persisted).toEqual(['wiki/taxonomy/engineering.md', 'wiki/index.md', 'wiki/log.md']);
+      expect(await readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).toContain('taxonomy/engineering.md');
+      expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain(
+        'upserted taxonomy wiki/taxonomy/engineering.md'
+      );
+      const runState = await loadRequestRunState(root, 'run-upsert-taxonomy-001');
+      expect(runState.request_run.touched_files).toEqual(['wiki/taxonomy/engineering.md', 'wiki/index.md', 'wiki/log.md']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "knowledge-insert.topic-plan.v3",
+  "sourceId": "src-java-threading",
+  "topics": [
+    {
+      "topicId": "topic-java-thread-context",
+      "slug": "java-thread-context",
+      "title": "Java 线程上下文传播",
+      "scope": "Java 并发中线程局部上下文的创建、继承和传播边界。",
+      "rationale": "全文围绕 ThreadLocal/InheritableThreadLocal 的上下文保存与传递展开。"
+    }
+  ]
+}

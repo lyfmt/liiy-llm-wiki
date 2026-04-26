@@ -1,4 +1,5 @@
 import { runRuntimeAgent, type RunRuntimeAgentResult } from '../runtime/agent-session.js';
+import { startKnowledgeInsertPipelineFromAttachment } from '../flows/knowledge-insert/start-knowledge-insert-pipeline-from-attachment.js';
 
 export interface WebServerDependencies {
   runRuntimeAgent: (input: {
@@ -14,8 +15,17 @@ export interface WebServerDependencies {
     allowQueryWriteback?: boolean;
     allowLintAutoFix?: boolean;
   }) => Promise<RunRuntimeAgentResult>;
+  runKnowledgeInsertPipelineFromAttachment?: (input: {
+    root: string;
+    attachmentId: string;
+    sessionId: string;
+    runId?: string;
+    maxPartExtractionConcurrency?: number;
+    resetKnowledgeGraphBeforeRun?: boolean;
+  }) => Promise<{ runId: string; sourceId?: string; status: string }>;
 }
 
 export const defaultWebServerDependencies: WebServerDependencies = {
-  runRuntimeAgent
+  runRuntimeAgent,
+  runKnowledgeInsertPipelineFromAttachment: startKnowledgeInsertPipelineFromAttachment
 };

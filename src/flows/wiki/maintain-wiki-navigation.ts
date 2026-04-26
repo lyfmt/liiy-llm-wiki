@@ -8,9 +8,10 @@ export async function rewriteWikiIndex(root: string): Promise<boolean> {
   const paths = buildProjectPaths(root);
   const sources = await listKnowledgePages(root, 'source');
   const entities = await listKnowledgePages(root, 'entity');
+  const taxonomy = await listKnowledgePages(root, 'taxonomy');
   const topics = await listKnowledgePages(root, 'topic');
   const queries = await listKnowledgePages(root, 'query');
-  const content = `# Wiki Index\n\n## Sources\n${renderSection('sources', sources)}\n## Entities\n${renderSection('entities', entities)}\n## Topics\n${renderSection('topics', topics)}\n## Queries\n${renderSection('queries', queries)}`;
+  const content = `# Wiki Index\n\n## Sources\n${renderSection('sources', sources)}\n## Entities\n${renderSection('entities', entities)}\n## Taxonomy\n${renderSection('taxonomy', taxonomy)}\n## Topics\n${renderSection('topics', topics)}\n## Queries\n${renderSection('queries', queries)}`;
 
   await mkdir(path.dirname(paths.wikiIndex), { recursive: true });
 

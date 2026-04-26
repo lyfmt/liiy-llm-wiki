@@ -7,6 +7,7 @@ import { createWebServer, type WebServerDependencies } from './app/web-server.js
 import { loadChatSettings } from './storage/chat-settings-store.js';
 import { resolveRuntimeModel } from './runtime/resolve-runtime-model.js';
 import { runRuntimeAgent, type RunRuntimeAgentResult } from './runtime/agent-session.js';
+import { startKnowledgeInsertPipelineFromAttachment } from './flows/knowledge-insert/start-knowledge-insert-pipeline-from-attachment.js';
 
 export interface CliDependencies {
   bootstrapProject: (root: string) => Promise<BootstrapProjectResult>;
@@ -124,7 +125,8 @@ export async function main(argv = process.argv, dependencies: CliDependencies = 
           allowQueryWriteback,
           allowLintAutoFix
         });
-      }
+      },
+      runKnowledgeInsertPipelineFromAttachment: startKnowledgeInsertPipelineFromAttachment
     });
 
     await new Promise<void>((resolve, reject) => {

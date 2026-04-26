@@ -31,4 +31,19 @@ describe('listKnowledgePages', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('lists taxonomy page slugs from wiki/taxonomy', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-list-'));
+
+    try {
+      const taxonomyDir = path.join(root, 'wiki', 'taxonomy');
+      await mkdir(taxonomyDir, { recursive: true });
+      await writeFile(path.join(taxonomyDir, 'engineering.md'), '---\nkind: "taxonomy"\n---\n# Engineering\n', 'utf8');
+      await writeFile(path.join(taxonomyDir, 'platform.md'), '---\nkind: "taxonomy"\n---\n# Platform\n', 'utf8');
+
+      expect(await listKnowledgePages(root, 'taxonomy')).toEqual(['engineering', 'platform']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

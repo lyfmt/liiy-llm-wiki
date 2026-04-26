@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGraphEdge } from '../../src/domain/graph-edge.js';
+import { createKnowledgeInsertGraphWrite } from '../../src/domain/knowledge-insert-graph-write.js';
 import { createGraphNode, type GraphNode } from '../../src/domain/graph-node.js';
 import type { GraphDatabaseClient } from '../../src/storage/graph-database.js';
+import { buildGraphProjection } from '../../src/storage/graph-projection-store.js';
 import { loadTopicGraphProjectionInput } from '../../src/storage/load-topic-graph-projection.js';
+import { saveKnowledgeInsertGraphWrite } from '../../src/storage/save-knowledge-insert-graph-write.js';
 
 describe('loadTopicGraphProjectionInput', () => {
   it('loads the topic neighborhood needed by buildGraphProjection', async () => {
@@ -175,6 +178,162 @@ describe('loadTopicGraphProjectionInput', () => {
 
     await expect(loadTopicGraphProjectionInput(client, 'missing')).resolves.toBeNull();
     expect(client.calls).toEqual(['node:topic:missing']);
+  });
+
+  it('loads a full graph write persisted from knowledge-insert artifacts', async () => {
+    const client = createWritableFakeGraphClient();
+    const graphWrite = createKnowledgeInsertGraphWrite({
+      topicTaxonomyArtifact: {
+        topics: [
+          {
+            sourceTopicId: 'source-topic-001',
+            topicSlug: 'design-patterns',
+            topicTitle: 'Design Patterns',
+            topicAction: 'reuse-topic',
+            sectionIds: ['section-001'],
+            taxonomyAction: 'attach-existing',
+            taxonomySlug: 'engineering',
+            taxonomy: {
+              rootTaxonomySlug: 'engineering',
+              parentTaxonomySlug: null,
+              leafTaxonomySlug: 'engineering'
+            },
+            conflictTaxonomySlugs: []
+          }
+        ]
+      },
+      topicDraftsArtifact: {
+        topics: [
+          {
+            topicSlug: 'design-patterns',
+            targetPath: 'wiki/topics/design-patterns.md',
+            sections: [
+              {
+                sectionId: 'section-001',
+                title: 'Pattern Intent',
+                body: 'Patch-first systems keep durable notes.',
+                source_refs: ['raw/accepted/design-patterns.md'],
+                evidence_anchor_ids: ['anchor-001'],
+                locators: ['raw/accepted/design-patterns.md#block-001']
+              }
+            ],
+            upsertArguments: {
+              kind: 'topic',
+              slug: 'design-patterns',
+              title: 'Design Patterns',
+              aliases: ['Pattern Intent'],
+              summary: 'Pattern overview.',
+              tags: ['engineering'],
+              source_refs: ['raw/accepted/design-patterns.md'],
+              outgoing_links: ['wiki/sources/src-001.md'],
+              status: 'active',
+              updated_at: '2026-04-23T00:00:00.000Z',
+              body: '# Design Patterns\n\n## Pattern Intent\n\nPatch-first systems keep durable notes.\n',
+              rationale: 'create deterministic topic draft from insertion plan src-001'
+            }
+          }
+        ]
+      },
+      sectionsArtifact: {
+        sections: [
+          {
+            sectionId: 'section-001',
+            title: 'Pattern Intent',
+            summary: 'Patch-first systems keep durable notes.',
+            body: 'Patch-first systems keep durable notes.',
+            entityIds: ['patch-first-system'],
+            assertionIds: ['patch-first-stability'],
+            evidenceAnchorIds: ['anchor-001'],
+            sourceSectionCandidateIds: ['sec-candidate-001'],
+            topicHints: ['design-patterns']
+          }
+        ]
+      },
+      mergedKnowledgeArtifact: {
+        inputArtifacts: ['state/artifacts/knowledge-insert/run-001/batches/batch-001.json'],
+        entities: [{ entityId: 'patch-first-system', name: 'Patch First System' }],
+        assertions: [
+          {
+            assertionId: 'patch-first-stability',
+            text: 'Patch-first writes stay stable.',
+            sectionCandidateId: 'sec-candidate-001',
+            evidenceAnchorIds: ['anchor-001'],
+            entityIds: ['patch-first-system']
+          }
+        ],
+        relations: [],
+        evidenceAnchors: [
+          {
+            anchorId: 'anchor-001',
+            blockId: 'block-001',
+            quote: 'Patch-first systems keep durable notes.',
+            title: 'Patterns intro anchor',
+            locator: 'design-patterns.md#introduction:p1',
+            order: 1,
+            heading_path: ['Introduction']
+          }
+        ],
+        sectionCandidates: [
+          {
+            sectionCandidateId: 'sec-candidate-001',
+            title: 'Pattern Intent',
+            summary: 'Patch-first systems keep durable notes.',
+            entityIds: ['patch-first-system'],
+            assertionIds: ['patch-first-stability'],
+            evidenceAnchorIds: ['anchor-001']
+          }
+        ],
+        topicHints: [{ topicSlug: 'design-patterns', confidence: 'high' }]
+      },
+      preparedResourceArtifact: {
+        manifestId: 'src-001',
+        rawPath: 'raw/accepted/design-patterns.md',
+        structuredMarkdown: '# Design Patterns\n\n## Pattern Intent\n\nPatch-first systems keep durable notes.\n',
+        sectionHints: [],
+        topicHints: ['design-patterns'],
+        sections: [{ headingPath: ['Design Patterns', 'Pattern Intent'], startLine: 3, endLine: 5 }],
+        metadata: {
+          title: 'Design Patterns',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:src-001',
+          importedAt: '2026-04-21T00:00:00.000Z',
+          preparedAt: '2026-04-23T00:00:00.000Z'
+        }
+      }
+    });
+
+    await saveKnowledgeInsertGraphWrite(client, graphWrite);
+
+    const result = await loadTopicGraphProjectionInput(client, 'design-patterns');
+    const projection = buildGraphProjection(result!);
+
+    expect(result?.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining([
+        'topic:design-patterns',
+        'taxonomy:engineering',
+        'section:design-patterns#1',
+        'entity:patch-first-system',
+        'assertion:patch-first-stability',
+        'evidence:src-001#1',
+        'source:src-001'
+      ])
+    );
+    expect(result?.edges.map((edge) => edge.type)).toEqual(
+      expect.arrayContaining([
+        'belongs_to_taxonomy',
+        'part_of',
+        'grounded_by',
+        'derived_from',
+        'mentions',
+        'about',
+        'supported_by'
+      ])
+    );
+    expect(projection.root.id).toBe('topic:design-patterns');
+    expect(projection.sections[0]?.node.id).toBe('section:design-patterns#1');
+    expect(projection.sections[0]?.grounding.source_paths).toEqual(['raw/accepted/design-patterns.md']);
+    expect(projection.assertions[0]?.evidence[0]?.source?.id).toBe('source:src-001');
   });
 
   it('recursively loads the rooted taxonomy chain, section tree, mentions, assertions, evidence, and sources', async () => {
@@ -591,6 +750,147 @@ function createFakeGraphClient(input: {
   };
 }
 
+function createWritableFakeGraphClient(): GraphDatabaseClient & { calls: string[] } {
+  let nodeRows = new Map<string, Record<string, unknown>>();
+  let edgeRows = new Map<string, Record<string, unknown>>();
+  let activeNodeRows = nodeRows;
+  let activeEdgeRows = edgeRows;
+  const calls: string[] = [];
+
+  const client: GraphDatabaseClient & { calls: string[] } = {
+    calls,
+    async transaction<T>(work: (transactionClient: GraphDatabaseClient) => Promise<T>) {
+      const transactionNodeRows = cloneRowMap(nodeRows);
+      const transactionEdgeRows = cloneRowMap(edgeRows);
+
+      activeNodeRows = transactionNodeRows;
+      activeEdgeRows = transactionEdgeRows;
+
+      try {
+        const result = await work(client);
+        nodeRows = transactionNodeRows;
+        edgeRows = transactionEdgeRows;
+        return result;
+      } finally {
+        activeNodeRows = nodeRows;
+        activeEdgeRows = edgeRows;
+      }
+    },
+    async query(sql: string, params?: unknown[]) {
+      if (sql.includes('insert into graph_nodes')) {
+        const row = toStoredNodeRow(params ?? []);
+        const existing = activeNodeRows.get(String(row.id));
+
+        if (sql.includes('on conflict (id) do nothing')) {
+          if (existing) {
+            return { rows: [] };
+          }
+
+          activeNodeRows.set(String(row.id), row);
+          return { rows: [{ id: row.id }] };
+        }
+
+        activeNodeRows.set(String(row.id), existing ? { ...row, created_at: existing.created_at } : row);
+        return { rows: [] };
+      }
+
+      if (sql.includes('insert into graph_edges')) {
+        const row = toStoredEdgeRow(params ?? []);
+        const existing = activeEdgeRows.get(String(row.edge_id));
+
+        if (sql.includes('on conflict (edge_id) do nothing')) {
+          if (existing) {
+            return { rows: [] };
+          }
+
+          activeEdgeRows.set(String(row.edge_id), row);
+          return { rows: [{ edge_id: row.edge_id }] };
+        }
+
+        activeEdgeRows.set(String(row.edge_id), existing ? { ...row, created_at: existing.created_at } : row);
+        return { rows: [] };
+      }
+
+      const id = String(params?.[0] ?? '');
+
+      if (sql.includes('from graph_nodes') && sql.includes('where id = $1')) {
+        calls.push(`node:${id}`);
+        return { rows: activeNodeRows.has(id) ? [cloneRow(activeNodeRows.get(id)!)] : [] };
+      }
+
+      if (sql.includes('from graph_edges') && sql.includes('where edge_id = $1')) {
+        return { rows: activeEdgeRows.has(id) ? [cloneRow(activeEdgeRows.get(id)!)] : [] };
+      }
+
+      if (sql.includes('from graph_edges') && sql.includes('where from_id = $1')) {
+        calls.push(`outgoing:${id}`);
+        const rows = [...activeEdgeRows.values()]
+          .filter((row) => row.from_id === id)
+          .sort((left, right) => String(left.edge_id).localeCompare(String(right.edge_id)))
+          .map(cloneRow);
+        return { rows };
+      }
+
+      if (sql.includes('from graph_edges') && sql.includes('where to_id = $1')) {
+        calls.push(`incoming:${id}`);
+        const rows = [...activeEdgeRows.values()]
+          .filter((row) => row.to_id === id)
+          .sort((left, right) => String(left.edge_id).localeCompare(String(right.edge_id)))
+          .map(cloneRow);
+        return { rows };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+
+  return client;
+}
+
 function toRow(value: object): Record<string, unknown> {
   return { ...value };
+}
+
+function toStoredNodeRow(params: unknown[]): Record<string, unknown> {
+  return {
+    id: String(params[0]),
+    kind: String(params[1]),
+    title: String(params[2]),
+    summary: String(params[3]),
+    aliases: JSON.parse(String(params[4])),
+    status: String(params[5]),
+    confidence: String(params[6]),
+    provenance: String(params[7]),
+    review_state: String(params[8]),
+    retrieval_text: String(params[9]),
+    attributes: JSON.parse(String(params[10])),
+    created_at: String(params[11]),
+    updated_at: String(params[12])
+  };
+}
+
+function toStoredEdgeRow(params: unknown[]): Record<string, unknown> {
+  return {
+    edge_id: String(params[0]),
+    from_id: String(params[1]),
+    from_kind: String(params[2]),
+    type: String(params[3]),
+    to_id: String(params[4]),
+    to_kind: String(params[5]),
+    status: String(params[6]),
+    confidence: String(params[7]),
+    provenance: String(params[8]),
+    review_state: String(params[9]),
+    qualifiers: JSON.parse(String(params[11])),
+    created_at: String(params[12]),
+    updated_at: String(params[13])
+  };
+}
+
+function cloneRowMap(source: Map<string, Record<string, unknown>>): Map<string, Record<string, unknown>> {
+  return new Map([...source.entries()].map(([key, value]) => [key, cloneRow(value)]));
+}
+
+function cloneRow<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }

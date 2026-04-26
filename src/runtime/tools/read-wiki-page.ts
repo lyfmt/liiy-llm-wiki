@@ -12,6 +12,7 @@ import type { RuntimeToolOutcome } from '../request-run-state.js';
 const pageKind = Type.Union([
   Type.Literal('source'),
   Type.Literal('entity'),
+  Type.Literal('taxonomy'),
   Type.Literal('topic'),
   Type.Literal('query')
 ]);
@@ -179,7 +180,7 @@ async function findSharedSourcePages(root: string, page: KnowledgePage): Promise
 }
 
 async function loadAllPages(root: string): Promise<KnowledgePage[]> {
-  const kinds: KnowledgePageKind[] = ['source', 'entity', 'topic', 'query'];
+  const kinds: KnowledgePageKind[] = ['source', 'entity', 'taxonomy', 'topic', 'query'];
   const pages: KnowledgePage[] = [];
 
   for (const kind of kinds) {

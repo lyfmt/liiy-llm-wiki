@@ -1,5 +1,5 @@
 export interface DiscoveryItem {
-  kind: 'source' | 'entity' | 'topic' | 'query';
+  kind: 'source' | 'entity' | 'taxonomy' | 'topic' | 'query';
   slug: string;
   title: string;
   summary: string;
@@ -26,6 +26,7 @@ export interface DiscoveryResponse {
   totals: {
     sources: number;
     entities: number;
+    taxonomy: number;
     topics: number;
     queries: number;
   };
@@ -404,6 +405,9 @@ export interface ChatAttachmentUploadResponse {
   ok: true;
   session_id: string;
   attachment: ChatAttachmentRef;
+  pipeline_run_id?: string;
+  pipeline_status?: string;
+  pipeline_source_id?: string;
 }
 
 export interface TaskSummary {

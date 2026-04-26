@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "title": "Agentic Graph Wiki 路线图",
+  "type": "engineering-diagram",
+  "source": "generated",
+  "profile": "engineering-review",
+  "theme": "tech-blue",
+  "layout": "horizontal",
+  "counts": {
+    "nodes": 16,
+    "edges": 17,
+    "modules": 5
+  },
+  "nodes": [
+    {
+      "id": "foundation_done",
+      "label": "基础层已完成\nPG + graph model + graph projection",
+      "type": "process",
+      "module": "current",
+      "size": "large"
+    },
+    {
+      "id": "topic_read_done",
+      "label": "topic graph read 已打通\nAPI + 阅读页 + agent read_wiki_page",
+      "type": "process",
+      "module": "current",
+      "size": "large"
+    },
+    {
+      "id": "page_compat",
+      "label": "兼容层仍存在\nentity/source/query 仍以 markdown page 为主",
+      "type": "document",
+      "module": "current",
+      "size": "large"
+    },
+    {
+      "id": "topic_graph_write",
+      "label": "topic 首写切片\ncontract + PG save + governed flow + runtime tool",
+      "type": "process",
+      "module": "phase1",
+      "size": "xl"
+    },
+    {
+      "id": "review_safe",
+      "label": "写入治理\ncreate-first-write + review gate + run state",
+      "type": "process",
+      "module": "phase1",
+      "size": "large"
+    },
+    {
+      "id": "read_after_write",
+      "label": "写后立读\n无需补 markdown，即可被 topic graph read 读到",
+      "type": "process",
+      "module": "phase1",
+      "size": "large"
+    },
+    {
+      "id": "root_expansion",
+      "label": "graph root 扩展\nentity / section / source / taxonomy",
+      "type": "process",
+      "module": "phase2",
+      "size": "xl"
+    },
+    {
+      "id": "source_projection",
+      "label": "source / evidence / assertion 视图补全\n不再只在 topic 内联出现",
+      "type": "process",
+      "module": "phase2",
+      "size": "large"
+    },
+    {
+      "id": "discovery_graph",
+      "label": "discovery / taxonomy 浏览迁到 graph\n主导航不再依赖 page inventory",
+      "type": "process",
+      "module": "phase2",
+      "size": "large"
+    },
+    {
+      "id": "graph_navigation",
+      "label": "agent 图谱导航\n先看 taxonomy/root，再按关系展开",
+      "type": "process",
+      "module": "phase3",
+      "size": "large"
+    },
+    {
+      "id": "graph_query",
+      "label": "graph-aware query / ranking\n从 page-centric 搜索升级为关系驱动检索",
+      "type": "process",
+      "module": "phase3",
+      "size": "large"
+    },
+    {
+      "id": "prompt_context",
+      "label": "自动 prompt 上下文注入\n按 root / 任务把结构摘要塞给 agent",
+      "type": "process",
+      "module": "phase3",
+      "size": "large"
+    },
+    {
+      "id": "governance",
+      "label": "治理层\nalias_index / operation_log / finding / projection_cache",
+      "type": "process",
+      "module": "final",
+      "size": "large"
+    },
+    {
+      "id": "final_agent",
+      "label": "最终 agent\n可搜、可读、可写、可审",
+      "type": "terminal",
+      "module": "final",
+      "size": "large"
+    },
+    {
+      "id": "final_wiki",
+      "label": "最终 wiki\ntaxonomy 主导 + 多 root 页面 + 关系可视化",
+      "type": "terminal",
+      "module": "final",
+      "size": "large"
+    },
+    {
+      "id": "final_truth",
+      "label": "最终事实源\nGraph DB 为主，markdown 成为 projection / 兼容层",
+      "type": "database",
+      "module": "final",
+      "size": "large"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "foundation_done",
+      "to": "topic_read_done",
+      "type": "primary"
+    },
+    {
+      "id": "edge-2",
+      "from": "topic_read_done",
+      "to": "page_compat",
+      "type": "optional",
+      "label": "现状边界"
+    },
+    {
+      "id": "edge-3",
+      "from": "topic_read_done",
+      "to": "topic_graph_write",
+      "type": "primary",
+      "label": "下一步"
+    },
+    {
+      "id": "edge-4",
+      "from": "page_compat",
+      "to": "topic_graph_write",
+      "type": "data",
+      "label": "兼容迁移"
+    },
+    {
+      "id": "edge-5",
+      "from": "topic_graph_write",
+      "to": "review_safe",
+      "type": "primary"
+    },
+    {
+      "id": "edge-6",
+      "from": "review_safe",
+      "to": "read_after_write",
+      "type": "primary"
+    },
+    {
+      "id": "edge-7",
+      "from": "read_after_write",
+      "to": "root_expansion",
+      "type": "primary"
+    },
+    {
+      "id": "edge-8",
+      "from": "root_expansion",
+      "to": "source_projection",
+      "type": "primary"
+    },
+    {
+      "id": "edge-9",
+      "from": "source_projection",
+      "to": "discovery_graph",
+      "type": "primary"
+    },
+    {
+      "id": "edge-10",
+      "from": "discovery_graph",
+      "to": "graph_navigation",
+      "type": "primary"
+    },
+    {
+      "id": "edge-11",
+      "from": "graph_navigation",
+      "to": "graph_query",
+      "type": "primary"
+    },
+    {
+      "id": "edge-12",
+      "from": "graph_query",
+      "to": "prompt_context",
+      "type": "primary"
+    },
+    {
+      "id": "edge-13",
+      "from": "prompt_context",
+      "to": "governance",
+      "type": "primary"
+    },
+    {
+      "id": "edge-14",
+      "from": "governance",
+      "to": "final_agent",
+      "type": "primary"
+    },
+    {
+      "id": "edge-15",
+      "from": "governance",
+      "to": "final_wiki",
+      "type": "primary"
+    },
+    {
+      "id": "edge-16",
+      "from": "final_agent",
+      "to": "final_truth",
+      "type": "data"
+    },
+    {
+      "id": "edge-17",
+      "from": "final_wiki",
+      "to": "final_truth",
+      "type": "data"
+    }
+  ],
+  "modules": [
+    {
+      "id": "current",
+      "label": "当前状态",
+      "color": "#DCFCE7"
+    },
+    {
+      "id": "phase1",
+      "label": "阶段 1：Graph 首写",
+      "color": "#FEF3C7"
+    },
+    {
+      "id": "phase2",
+      "label": "阶段 2：Root 扩展",
+      "color": "#DBEAFE"
+    },
+    {
+      "id": "phase3",
+      "label": "阶段 3：Agent 浏览升级",
+      "color": "#E0F2FE"
+    },
+    {
+      "id": "final",
+      "label": "终极状态",
+      "color": "#D1FAE5"
+    }
+  ]
+}

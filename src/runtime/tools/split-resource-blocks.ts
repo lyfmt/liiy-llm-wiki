@@ -21,7 +21,7 @@ export interface KnowledgeResourceBlock {
   headingPath: string[];
   locator: string;
   text: string;
-  kind: 'paragraph' | 'list_item';
+  kind: 'paragraph' | 'list_item' | 'table_row';
 }
 
 export interface SplitResourceBlocksArtifact {
@@ -55,7 +55,7 @@ export function createSplitResourceBlocksTool(
 
       const outcome: RuntimeToolOutcome = {
         toolName: 'split_resource_blocks',
-        summary: `split resource into ${blocks.length} knowledge blocks`,
+        summary: `split resource into ${blocks.length} source blocks`,
         evidence: [resolvedInput.absolutePath],
         touchedFiles: [resolvedOutput.projectPath],
         data: {
@@ -92,14 +92,31 @@ function parsePreparedResourceArtifact(content: string): PreparedSourceResourceA
     manifestId: value.manifestId,
     rawPath: value.rawPath,
     structuredMarkdown: value.structuredMarkdown,
-    sections: [],
+    sectionHints: Array.isArray(value.sectionHints) ? value.sectionHints.filter((hint): hint is string => typeof hint === 'string') : [],
+    topicHints: Array.isArray(value.topicHints) ? value.topicHints.filter((hint): hint is string => typeof hint === 'string') : [],
+    sections:
+      Array.isArray(value.sections) &&
+      value.sections.every(
+        (section) =>
+          isRecord(section) &&
+          Array.isArray(section.headingPath) &&
+          section.headingPath.every((entry) => typeof entry === 'string') &&
+          typeof section.startLine === 'number' &&
+          typeof section.endLine === 'number'
+      )
+        ? value.sections.map((section) => ({
+            headingPath: [...(section.headingPath as string[])],
+            startLine: section.startLine as number,
+            endLine: section.endLine as number
+          }))
+        : [],
     metadata: {
-      title: '',
-      type: '',
-      status: '',
-      hash: '',
-      importedAt: '',
-      preparedAt: ''
+      title: readMetadataField(value.metadata, 'title'),
+      type: readMetadataField(value.metadata, 'type'),
+      status: readMetadataField(value.metadata, 'status'),
+      hash: readMetadataField(value.metadata, 'hash'),
+      importedAt: readMetadataField(value.metadata, 'importedAt'),
+      preparedAt: readMetadataField(value.metadata, 'preparedAt')
     }
   };
 }
@@ -109,7 +126,7 @@ function splitMarkdownIntoBlocks(markdown: string): KnowledgeResourceBlock[] {
   const blocks: KnowledgeResourceBlock[] = [];
   let headingPath: string[] = [];
   let paragraphBuffer: string[] = [];
-  const sectionCounters = new Map<string, { paragraph: number; list: number }>();
+  const sectionCounters = new Map<string, { paragraph: number; list: number; table: number }>();
 
   const flushParagraph = () => {
     if (paragraphBuffer.length === 0) {
@@ -125,7 +142,7 @@ function splitMarkdownIntoBlocks(markdown: string): KnowledgeResourceBlock[] {
 
     const blockId = formatBlockId(blocks.length + 1);
     const sectionKey = buildSectionKey(headingPath);
-    const counters = sectionCounters.get(sectionKey) ?? { paragraph: 0, list: 0 };
+    const counters = sectionCounters.get(sectionKey) ?? { paragraph: 0, list: 0, table: 0 };
     counters.paragraph += 1;
     sectionCounters.set(sectionKey, counters);
     blocks.push({
@@ -155,12 +172,12 @@ function splitMarkdownIntoBlocks(markdown: string): KnowledgeResourceBlock[] {
       continue;
     }
 
-    const listMatch = trimmed.match(/^[-*+]\s+(.+)$/u);
+    const listMatch = trimmed.match(/^(?:[-*+]|\d+[.)])\s+(.+)$/u);
 
     if (listMatch) {
       flushParagraph();
       const sectionKey = buildSectionKey(headingPath);
-      const counters = sectionCounters.get(sectionKey) ?? { paragraph: 0, list: 0 };
+      const counters = sectionCounters.get(sectionKey) ?? { paragraph: 0, list: 0, table: 0 };
       counters.list += 1;
       sectionCounters.set(sectionKey, counters);
       blocks.push({
@@ -169,6 +186,27 @@ function splitMarkdownIntoBlocks(markdown: string): KnowledgeResourceBlock[] {
         locator: `${buildLocatorPrefix(headingPath)}#li${counters.list}`,
         text: listMatch[1].trim(),
         kind: 'list_item'
+      });
+      continue;
+    }
+
+    if (isMarkdownTableRow(trimmed)) {
+      flushParagraph();
+
+      if (isMarkdownTableSeparator(trimmed)) {
+        continue;
+      }
+
+      const sectionKey = buildSectionKey(headingPath);
+      const counters = sectionCounters.get(sectionKey) ?? { paragraph: 0, list: 0, table: 0 };
+      counters.table += 1;
+      sectionCounters.set(sectionKey, counters);
+      blocks.push({
+        blockId: formatBlockId(blocks.length + 1),
+        headingPath: [...headingPath],
+        locator: `${buildLocatorPrefix(headingPath)}#tr${counters.table}`,
+        text: normalizeMarkdownTableRow(trimmed),
+        kind: 'table_row'
       });
       continue;
     }
@@ -195,6 +233,35 @@ function buildLocatorPrefix(headingPath: string[]): string {
   }
 
   return headingPath.map((heading, index) => `h${index + 1}:${heading}`).join(' > ');
+}
+
+function isMarkdownTableRow(line: string): boolean {
+  return line.includes('|') && /^\|.*\|$/u.test(line);
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = line
+    .split('|')
+    .map((cell) => cell.trim())
+    .filter((cell) => cell.length > 0);
+
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/u.test(cell));
+}
+
+function normalizeMarkdownTableRow(line: string): string {
+  return line
+    .slice(1, -1)
+    .split('|')
+    .map((cell) => cell.trim())
+    .join(' | ');
+}
+
+function readMetadataField(metadata: unknown, field: string): string {
+  if (!isRecord(metadata) || typeof metadata[field] !== 'string') {
+    return '';
+  }
+
+  return metadata[field];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

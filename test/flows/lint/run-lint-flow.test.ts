@@ -168,4 +168,40 @@ describe('runLintFlow', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('includes taxonomy pages when rebuilding wiki/index.md during lint autofix', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-lint-taxonomy-'));
+
+    try {
+      await bootstrapProject(root);
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Shared engineering taxonomy.',
+          tags: ['taxonomy'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z'
+        }),
+        '# Engineering\n\nShared engineering taxonomy.\n'
+      );
+
+      const result = await runLintFlow(root, {
+        runId: 'run-103',
+        userRequest: 'lint taxonomy pages',
+        autoFix: true
+      });
+
+      expect(result.autoFixed).toEqual(['wiki/index.md']);
+      expect(await readFile(path.join(root, 'wiki', 'index.md'), 'utf8')).toContain(
+        '- [engineering](taxonomy/engineering.md)'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "knowledge-insert.partition-plan.v3",
+  "sourceId": "src-java-threading",
+  "parts": [
+    {
+      "partId": "part-001",
+      "title": "InheritableThreadLocal 的继承式上下文传播",
+      "startLine": 12,
+      "endLine": 86,
+      "topicIds": ["topic-java-thread-context"],
+      "rationale": "这一段集中说明父线程到子线程的初始值继承。"
+    }
+  ]
+}

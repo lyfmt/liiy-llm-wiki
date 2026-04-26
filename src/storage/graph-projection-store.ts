@@ -17,6 +17,7 @@ export interface GraphProjection {
   taxonomy: GraphNode[];
   sections: GraphProjectionSection[];
   entities: GraphNode[];
+  concepts?: GraphNode[];
   assertions: Array<{
     node: GraphNode;
     evidence: Array<{
@@ -73,6 +74,7 @@ export function buildGraphProjection(input: BuildGraphProjectionInput): GraphPro
     taxonomy: rootedNodes.filter((node): node is GraphNode => node.kind === 'taxonomy').sort(compareNodes),
     sections,
     entities: rootedNodes.filter((node): node is GraphNode => node.kind === 'entity').sort(compareNodes),
+    concepts: rootedNodes.filter((node): node is GraphNode => node.kind === 'concept').sort(compareNodes),
     assertions,
     evidence: dedupeEvidence(assertions.flatMap((assertion) => assertion.evidence))
   };
@@ -137,7 +139,7 @@ function usesOutgoingTraversal(kind: GraphNode['kind']): boolean {
 }
 
 function usesIncomingTraversal(kind: GraphNode['kind']): boolean {
-  return ['topic', 'section', 'entity'].includes(kind);
+  return ['topic', 'section', 'entity', 'concept'].includes(kind);
 }
 
 function isOutgoingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
@@ -149,14 +151,14 @@ function isOutgoingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
     case 'topic':
       return (
         (edge.type === 'belongs_to_taxonomy' && edge.to_kind === 'taxonomy') ||
-        (edge.type === 'mentions' && edge.to_kind === 'entity')
+        (edge.type === 'mentions' && ['entity', 'concept'].includes(edge.to_kind))
       );
     case 'taxonomy':
       return edge.type === 'part_of' && edge.to_kind === 'taxonomy';
     case 'section':
       return (
         (edge.type === 'grounded_by' && edge.to_kind === 'evidence') ||
-        (edge.type === 'mentions' && edge.to_kind === 'entity')
+        (edge.type === 'mentions' && ['entity', 'concept'].includes(edge.to_kind))
       );
     case 'assertion':
       return (
@@ -169,7 +171,7 @@ function isOutgoingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
         (edge.type === 'mentions' && edge.to_kind === 'entity')
       );
     case 'source':
-      return edge.type === 'mentions' && edge.to_kind === 'entity';
+      return edge.type === 'mentions' && ['entity', 'concept'].includes(edge.to_kind);
     default:
       return false;
   }
@@ -193,6 +195,11 @@ function isIncomingTraversalEdge(node: GraphNode, edge: GraphEdge): boolean {
       );
     case 'entity':
       return edge.type === 'about' && edge.from_kind === 'assertion';
+    case 'concept':
+      return (
+        (edge.type === 'mentions' && ['topic', 'section', 'source'].includes(edge.from_kind)) ||
+        (edge.type === 'about' && edge.from_kind === 'assertion')
+      );
     default:
       return false;
   }

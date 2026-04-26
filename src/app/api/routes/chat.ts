@@ -48,6 +48,7 @@ import { resolveChatAttachments, saveBufferedChatAttachment, toChatAttachmentRef
 import { saveRequestRunState } from '../../../storage/request-run-state-store.js';
 import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
+import { readKnowledgeInsertPipelineArtifact } from '../../../flows/knowledge-insert/pipeline-artifacts.js';
 
 export async function handleChatRoutes(context: ApiRouteContext): Promise<boolean> {
   const { root, request, response, method, pathname, url, dependencies } = context;
@@ -130,12 +131,45 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       mimeType: payload.mimeType,
       data: Buffer.from(payload.dataBase64, 'base64')
     });
+    const pipelineRunId = payload.autoKnowledgeInsert && dependencies.runKnowledgeInsertPipelineFromAttachment
+      ? `pipeline-${randomUUID()}`
+      : null;
+    if (pipelineRunId && dependencies.runKnowledgeInsertPipelineFromAttachment) {
+      void dependencies.runKnowledgeInsertPipelineFromAttachment({
+        root,
+        attachmentId: attachment.attachment_id,
+        sessionId: chatSession.session_id,
+        runId: pipelineRunId,
+        maxPartExtractionConcurrency: payload.maxPartExtractionConcurrency,
+        resetKnowledgeGraphBeforeRun: payload.resetKnowledgeGraphBeforeRun
+      }).catch(() => undefined);
+    }
 
     writeJson(response, 201, {
       ok: true,
       session_id: chatSession.session_id,
-      attachment: toChatAttachmentRef(attachment)
+      attachment: toChatAttachmentRef(attachment),
+      ...(pipelineRunId
+        ? {
+            pipeline_run_id: pipelineRunId,
+            pipeline_status: 'running'
+          }
+        : {})
     });
+    return true;
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/knowledge-insert/pipelines/')) {
+    const runId = decodeURIComponent(pathname.slice('/api/knowledge-insert/pipelines/'.length));
+    try {
+      writeJson(response, 200, await readKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json'));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        writeJson(response, 404, { error: 'pipeline_not_found' });
+        return true;
+      }
+      throw error;
+    }
     return true;
   }
 

@@ -440,6 +440,45 @@ describe('createReadWikiPageTool', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('reads taxonomy pages from markdown storage without graph loading', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-read-page-taxonomy-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Shared engineering taxonomy.',
+          tags: ['taxonomy'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-20T00:00:00.000Z'
+        }),
+        '# Engineering\n\nShared engineering taxonomy.\n'
+      );
+
+      const tool = createReadWikiPageTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-read-page-taxonomy-001'
+        })
+      );
+
+      const result = await tool.execute('tool-call-taxonomy-1', { kind: 'taxonomy', slug: 'engineering' });
+
+      expect(vi.mocked(loadTopicGraphPage)).not.toHaveBeenCalled();
+      expect(result.details.summary).toBe('read wiki/taxonomy/engineering.md');
+      expect(result.details.resultMarkdown).toContain('Kind: taxonomy');
+      expect(result.details.resultMarkdown).toContain('Title: Engineering');
+      expect(result.details.resultMarkdown).not.toContain('Topic graph summary:');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function buildMockTopicGraphPage(input?: {

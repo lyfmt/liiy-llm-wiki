@@ -63,7 +63,7 @@ export async function buildChatOperationsSummaryDto(root: string): Promise<ChatO
   return toChatOperationsSummaryDto({
     settings,
     project_env: {
-      keys: filterVisibleProjectEnvKeys(projectEnv.keys)
+      keys: filterVisibleProjectEnvKeys(projectEnv.keys, settings.api_key_env)
     },
     runtime_readiness: buildRuntimeReadinessSummaryDto(root, settings, projectEnv),
     recent_runs: runs.slice(-5).reverse(),
@@ -227,8 +227,14 @@ export async function buildFailedChatRunResponseDto(root: string, runId: string,
   }
 }
 
-function filterVisibleProjectEnvKeys(keys: string[]): string[] {
-  return [...keys];
+function filterVisibleProjectEnvKeys(keys: string[], configuredApiKeyEnv?: string): string[] {
+  const configuredKey = configuredApiKeyEnv?.trim();
+
+  return keys.filter((key) => {
+    const normalizedKey = key.trim();
+
+    return normalizedKey.endsWith('_API_KEY') || normalizedKey === configuredKey;
+  });
 }
 
 async function loadKnowledgeTaskIfExists(root: string, taskId: string): Promise<Awaited<ReturnType<typeof loadKnowledgeTask>> | null> {

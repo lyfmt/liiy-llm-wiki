@@ -115,6 +115,15 @@ function renderTopicGraphBody(projection: GraphProjection): string {
     );
   }
 
+  const concepts = projection.concepts ?? [];
+
+  if (concepts.length > 0) {
+    blocks.push(
+      '## Concepts',
+      ...concepts.map((node) => `- ${node.title}${formatSummarySuffix(node.summary)}`)
+    );
+  }
+
   if (projection.assertions.length > 0) {
     blocks.push('## Assertions');
 

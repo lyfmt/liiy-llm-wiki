@@ -166,9 +166,10 @@ function buildTopicGraphNavigation(projection: GraphProjection): KnowledgePageRe
 }
 
 async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
-  const [sources, entities, topics, queries] = await Promise.all([
+  const [sources, entities, taxonomy, topics, queries] = await Promise.all([
     listKnowledgePages(root, 'source'),
     listKnowledgePages(root, 'entity'),
+    listKnowledgePages(root, 'taxonomy'),
     listKnowledgePages(root, 'topic'),
     listKnowledgePages(root, 'query')
   ]);
@@ -176,6 +177,7 @@ async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
   return Promise.all([
     ...sources.map((pageSlug) => loadKnowledgePageMetadata(root, 'source', pageSlug)),
     ...entities.map((pageSlug) => loadKnowledgePageMetadata(root, 'entity', pageSlug)),
+    ...taxonomy.map((pageSlug) => loadKnowledgePageMetadata(root, 'taxonomy', pageSlug)),
     ...topics.map((pageSlug) => loadKnowledgePageMetadata(root, 'topic', pageSlug)),
     ...queries.map((pageSlug) => loadKnowledgePageMetadata(root, 'query', pageSlug))
   ]);

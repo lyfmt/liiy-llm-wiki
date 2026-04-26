@@ -1,0 +1,267 @@
+meta:
+  profile: engineering-review
+  source: generated
+  theme: tech-blue
+  layout: horizontal
+  canvas: 2200x1200
+  routing: orthogonal
+  title: Agentic Graph Wiki 路线图
+  description: 从当前 topic graph read 已打通的状态，推进到 graph 主导、taxonomy 驱动、agent 可读可写可审的终极状态。
+  legend: 绿色=当前已完成；橙色=下一阶段；蓝色=中期扩展；青色=agent 能力升级；深色=终极状态。
+modules:
+  - id: current
+    label: 当前状态
+    color: '#DCFCE7'
+  - id: phase1
+    label: 阶段 1：Graph 首写
+    color: '#FEF3C7'
+  - id: phase2
+    label: 阶段 2：Root 扩展
+    color: '#DBEAFE'
+  - id: phase3
+    label: 阶段 3：Agent 浏览升级
+    color: '#E0F2FE'
+  - id: final
+    label: 终极状态
+    color: '#D1FAE5'
+nodes:
+  - id: foundation_done
+    label: |-
+      基础层已完成
+      PG + graph model + graph projection
+    type: process
+    module: current
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+      strokeWidth: 2
+  - id: topic_read_done
+    label: |-
+      topic graph read 已打通
+      API + 阅读页 + agent read_wiki_page
+    type: process
+    module: current
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+      strokeWidth: 2
+  - id: page_compat
+    label: |-
+      兼容层仍存在
+      entity/source/query 仍以 markdown page 为主
+    type: document
+    module: current
+    size: large
+    style:
+      fillColor: '#F0FDF4'
+      strokeColor: '#16A34A'
+      fontColor: '#14532D'
+  - id: topic_graph_write
+    label: |-
+      topic 首写切片
+      contract + PG save + governed flow + runtime tool
+    type: process
+    module: phase1
+    size: xl
+    style:
+      fillColor: '#FEF3C7'
+      strokeColor: '#D97706'
+      fontColor: '#78350F'
+      strokeWidth: 2
+  - id: review_safe
+    label: |-
+      写入治理
+      create-first-write + review gate + run state
+    type: process
+    module: phase1
+    size: large
+    style:
+      fillColor: '#FEF3C7'
+      strokeColor: '#D97706'
+      fontColor: '#78350F'
+  - id: read_after_write
+    label: |-
+      写后立读
+      无需补 markdown，即可被 topic graph read 读到
+    type: process
+    module: phase1
+    size: large
+    style:
+      fillColor: '#FEF3C7'
+      strokeColor: '#D97706'
+      fontColor: '#78350F'
+  - id: root_expansion
+    label: |-
+      graph root 扩展
+      entity / section / source / taxonomy
+    type: process
+    module: phase2
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: source_projection
+    label: |-
+      source / evidence / assertion 视图补全
+      不再只在 topic 内联出现
+    type: process
+    module: phase2
+    size: large
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+  - id: discovery_graph
+    label: |-
+      discovery / taxonomy 浏览迁到 graph
+      主导航不再依赖 page inventory
+    type: process
+    module: phase2
+    size: large
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+  - id: graph_navigation
+    label: |-
+      agent 图谱导航
+      先看 taxonomy/root，再按关系展开
+    type: process
+    module: phase3
+    size: large
+    style:
+      fillColor: '#E0F2FE'
+      strokeColor: '#0284C7'
+      fontColor: '#0C4A6E'
+      strokeWidth: 2
+  - id: graph_query
+    label: |-
+      graph-aware query / ranking
+      从 page-centric 搜索升级为关系驱动检索
+    type: process
+    module: phase3
+    size: large
+    style:
+      fillColor: '#E0F2FE'
+      strokeColor: '#0284C7'
+      fontColor: '#0C4A6E'
+  - id: prompt_context
+    label: |-
+      自动 prompt 上下文注入
+      按 root / 任务把结构摘要塞给 agent
+    type: process
+    module: phase3
+    size: large
+    style:
+      fillColor: '#E0F2FE'
+      strokeColor: '#0284C7'
+      fontColor: '#0C4A6E'
+  - id: governance
+    label: |-
+      治理层
+      alias_index / operation_log / finding / projection_cache
+    type: process
+    module: final
+    size: large
+    style:
+      fillColor: '#D1FAE5'
+      strokeColor: '#0F766E'
+      fontColor: '#134E4A'
+      strokeWidth: 2
+  - id: final_agent
+    label: |-
+      最终 agent
+      可搜、可读、可写、可审
+    type: terminal
+    module: final
+    size: large
+    style:
+      fillColor: '#CCFBF1'
+      strokeColor: '#0F766E'
+      fontColor: '#134E4A'
+      strokeWidth: 2
+  - id: final_wiki
+    label: |-
+      最终 wiki
+      taxonomy 主导 + 多 root 页面 + 关系可视化
+    type: terminal
+    module: final
+    size: large
+    style:
+      fillColor: '#CCFBF1'
+      strokeColor: '#0F766E'
+      fontColor: '#134E4A'
+      strokeWidth: 2
+  - id: final_truth
+    label: |-
+      最终事实源
+      Graph DB 为主，markdown 成为 projection / 兼容层
+    type: database
+    module: final
+    size: large
+    style:
+      fillColor: '#CCFBF1'
+      strokeColor: '#0F766E'
+      fontColor: '#134E4A'
+      strokeWidth: 2
+edges:
+  - from: foundation_done
+    to: topic_read_done
+    type: primary
+  - from: topic_read_done
+    to: page_compat
+    type: optional
+    label: 现状边界
+  - from: topic_read_done
+    to: topic_graph_write
+    type: primary
+    label: 下一步
+  - from: page_compat
+    to: topic_graph_write
+    type: data
+    label: 兼容迁移
+  - from: topic_graph_write
+    to: review_safe
+    type: primary
+  - from: review_safe
+    to: read_after_write
+    type: primary
+  - from: read_after_write
+    to: root_expansion
+    type: primary
+  - from: root_expansion
+    to: source_projection
+    type: primary
+  - from: source_projection
+    to: discovery_graph
+    type: primary
+  - from: discovery_graph
+    to: graph_navigation
+    type: primary
+  - from: graph_navigation
+    to: graph_query
+    type: primary
+  - from: graph_query
+    to: prompt_context
+    type: primary
+  - from: prompt_context
+    to: governance
+    type: primary
+  - from: governance
+    to: final_agent
+    type: primary
+  - from: governance
+    to: final_wiki
+    type: primary
+  - from: final_agent
+    to: final_truth
+    type: data
+  - from: final_wiki
+    to: final_truth
+    type: data

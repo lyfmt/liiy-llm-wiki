@@ -118,6 +118,7 @@ export function uploadChatAttachment(payload: {
   fileName: string;
   mimeType: string;
   dataBase64: string;
+  autoKnowledgeInsert?: boolean;
 }): Promise<ChatAttachmentUploadResponse> {
   return sendJson<ChatAttachmentUploadResponse>('/api/chat/uploads', 'POST', payload);
 }

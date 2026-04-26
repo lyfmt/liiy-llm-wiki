@@ -42,4 +42,23 @@ describe('createGraphNode', () => {
       })
     ).toThrow('Evidence nodes require locator and excerpt');
   });
+
+  it('creates concept nodes as first-class graph nodes', () => {
+    const node = createGraphNode({
+      id: 'concept:thread-local-context-propagation',
+      kind: 'concept',
+      title: '线程局部上下文传播',
+      summary: '在并发执行边界上传递上下文信息的机制。',
+      aliases: ['上下文传递'],
+      status: 'active',
+      confidence: 'asserted',
+      provenance: 'agent-extracted',
+      review_state: 'reviewed',
+      attributes: { source_concept_id: 'concept-thread-local-context-propagation' },
+      created_at: '2026-04-25T00:00:00.000Z',
+      updated_at: '2026-04-25T00:00:00.000Z'
+    });
+
+    expect(node.kind).toBe('concept');
+  });
 });

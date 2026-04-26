@@ -100,7 +100,7 @@ describe('createGraphEdge', () => {
         created_at: '2026-04-19T00:00:00.000Z',
         updated_at: '2026-04-19T00:00:00.000Z'
       })
-    ).toThrow('about edges must connect assertion to topic, section, or entity');
+    ).toThrow('about edges must connect assertion to topic, section, entity, or concept');
   });
 
   it('creates a valid assertion to evidence edge', () => {
@@ -260,7 +260,43 @@ describe('createGraphEdge', () => {
         created_at: '2026-04-19T00:00:00.000Z',
         updated_at: '2026-04-19T00:00:00.000Z'
       })
-    ).toThrow('mentions edges must connect topic/section/source/evidence/assertion to entity');
+    ).toThrow('mentions edges must connect topic/section/source/evidence/assertion to entity or concept');
+  });
+
+  it('allows sections and assertions to connect to concepts', () => {
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:mentions:section-1:concept-1',
+        from_id: 'section:java-thread-context#1',
+        from_kind: 'section',
+        type: 'mentions',
+        to_id: 'concept:thread-local-context-propagation',
+        to_kind: 'concept',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'agent-synthesized',
+        review_state: 'reviewed',
+        created_at: '2026-04-25T00:00:00.000Z',
+        updated_at: '2026-04-25T00:00:00.000Z'
+      })
+    ).not.toThrow();
+
+    expect(() =>
+      createGraphEdge({
+        edge_id: 'edge:about:assertion-1:concept-1',
+        from_id: 'assertion:context-propagation',
+        from_kind: 'assertion',
+        type: 'about',
+        to_id: 'concept:thread-local-context-propagation',
+        to_kind: 'concept',
+        status: 'active',
+        confidence: 'asserted',
+        provenance: 'agent-synthesized',
+        review_state: 'reviewed',
+        created_at: '2026-04-25T00:00:00.000Z',
+        updated_at: '2026-04-25T00:00:00.000Z'
+      })
+    ).not.toThrow();
   });
 
   it('creates a valid belongs_to_taxonomy edge that targets taxonomy', () => {

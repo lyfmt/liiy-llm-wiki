@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "knowledge-insert.connected-knowledge.v3",
+  "sourceId": "src-java-threading",
+  "topics": [
+    {
+      "topicId": "topic-java-thread-context",
+      "slug": "java-thread-context",
+      "title": "Java 线程上下文传播",
+      "scope": "Java 并发中线程局部上下文的创建、继承和传播边界。",
+      "rationale": "全文围绕 ThreadLocal/InheritableThreadLocal 的上下文保存与传递展开。"
+    }
+  ],
+  "sections": [
+    {
+      "sectionId": "section-part-001-001",
+      "title": "InheritableThreadLocal 用于把父线程上下文传递给子线程",
+      "body": "InheritableThreadLocal 是 ThreadLocal 的继承式变体。",
+      "topicIds": ["topic-java-thread-context"],
+      "entityIds": ["entity-inheritablethreadlocal"],
+      "conceptIds": ["concept-thread-local-context-propagation"],
+      "evidenceAnchorIds": ["evidence-part-001-001"]
+    }
+  ],
+  "entities": [
+    {
+      "entityId": "entity-inheritablethreadlocal",
+      "name": "InheritableThreadLocal",
+      "summary": "Java 中支持父线程向子线程传递线程局部变量初始值的类。",
+      "aliases": []
+    }
+  ],
+  "concepts": [
+    {
+      "conceptId": "concept-thread-local-context-propagation",
+      "name": "线程局部上下文传播",
+      "summary": "在并发执行边界上传递上下文信息的机制。",
+      "aliases": ["上下文传递"]
+    }
+  ],
+  "evidenceAnchors": [
+    {
+      "anchorId": "evidence-part-001-001",
+      "locator": "raw/accepted/java-threading.md#L12-L36",
+      "quote": "InheritableThreadLocal 可以在创建子线程时继承父线程中的变量副本。",
+      "startLine": 12,
+      "endLine": 36
+    }
+  ]
+}

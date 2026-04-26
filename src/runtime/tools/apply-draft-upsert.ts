@@ -8,6 +8,7 @@ import type { RuntimeToolOutcome } from '../request-run-state.js';
 const pageKind = Type.Union([
   Type.Literal('source'),
   Type.Literal('entity'),
+  Type.Literal('taxonomy'),
   Type.Literal('topic'),
   Type.Literal('query')
 ]);

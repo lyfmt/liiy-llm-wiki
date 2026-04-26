@@ -10,6 +10,7 @@ import type { RuntimeToolOutcome } from '../request-run-state.js';
 const pageKind = Type.Union([
   Type.Literal('source'),
   Type.Literal('entity'),
+  Type.Literal('taxonomy'),
   Type.Literal('topic'),
   Type.Literal('query')
 ]);
@@ -429,7 +430,7 @@ async function loadRawEvidence(root: string, sourceRefs: string[]): Promise<RawK
 }
 
 function parseWikiPagePath(pagePath: string): { kind: KnowledgePageKind; slug: string } | null {
-  const match = /^wiki\/(sources|entities|topics|queries)\/([^/]+)\.md$/u.exec(pagePath);
+  const match = /^wiki\/(sources|entities|taxonomy|topics|queries)\/([^/]+)\.md$/u.exec(pagePath);
 
   if (!match) {
     return null;
@@ -442,6 +443,8 @@ function parseWikiPagePath(pagePath: string): { kind: KnowledgePageKind; slug: s
       ? 'source'
       : directory === 'entities'
         ? 'entity'
+        : directory === 'taxonomy'
+          ? 'taxonomy'
         : directory === 'queries'
           ? 'query'
           : 'topic';
@@ -496,7 +499,16 @@ function normalizeSingleLineText(value: string | undefined): string {
 }
 
 function buildPagePath(kind: KnowledgePageKind, slug: string): string {
-  const directory = kind === 'source' ? 'sources' : kind === 'entity' ? 'entities' : kind === 'query' ? 'queries' : 'topics';
+  const directory =
+    kind === 'source'
+      ? 'sources'
+      : kind === 'entity'
+        ? 'entities'
+        : kind === 'taxonomy'
+          ? 'taxonomy'
+          : kind === 'query'
+            ? 'queries'
+            : 'topics';
   return `wiki/${directory}/${slug}.md`;
 }
 

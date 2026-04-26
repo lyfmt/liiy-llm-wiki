@@ -67,4 +67,7 @@ export interface ChatAttachmentUploadRequestDto {
   fileName: string;
   mimeType: string;
   dataBase64: string;
+  autoKnowledgeInsert?: boolean;
+  maxPartExtractionConcurrency?: number;
+  resetKnowledgeGraphBeforeRun?: boolean;
 }

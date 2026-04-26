@@ -3,6 +3,7 @@ export type GraphNodeKind =
   | 'topic'
   | 'section'
   | 'entity'
+  | 'concept'
   | 'source'
   | 'evidence'
   | 'assertion';

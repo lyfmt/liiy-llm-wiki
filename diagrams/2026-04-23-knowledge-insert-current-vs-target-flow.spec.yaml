@@ -1,0 +1,329 @@
+meta:
+  profile: engineering-review
+  source: generated
+  theme: tech-blue
+  layout: horizontal
+  canvas: 2600x1600
+  routing: orthogonal
+  title: Wiki 插入链路：当前流程 vs 目标流程
+  description: 对比仓库当前 knowledge-insert 的 section-hosting 流程，与用户目标中的 source-first、topic/taxonomy-aware 插入流程。
+  legend: 绿色=当前流程；蓝色=目标流程；浅黄=关键差异与断点；青色=回源与读路径。
+modules:
+  - id: current_flow
+    label: 当前 knowledge-insert 流程
+    color: '#DCFCE7'
+  - id: target_flow
+    label: 目标 source-first 流程
+    color: '#DBEAFE'
+nodes:
+  - id: c_upload
+    label: 上传 source / attachment
+    type: terminal
+    module: current_flow
+    size: medium
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+      strokeWidth: 2
+  - id: c_source
+    label: |-
+      accepted source
+      create_source_from_attachment
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_blocks
+    label: |-
+      prepare resource
+      split blocks
+      split batches
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_worker
+    label: |-
+      worker extraction
+      entities / assertions / relations
+      evidenceAnchors / sectionCandidates / topicHints
+    type: process
+    module: current_flow
+    size: xl
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_merge
+    label: |-
+      merge_extracted_knowledge
+      audit_extraction_coverage
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_sections
+    label: |-
+      merge_section_candidates
+      生成 normalized sections
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+      strokeWidth: 2
+  - id: c_hosts
+    label: |-
+      resolve_topic_hosts
+      对每个 section 做 host decision
+    type: process
+    module: current_flow
+    size: xl
+    style:
+      fillColor: '#FDE68A'
+      strokeColor: '#D97706'
+      fontColor: '#78350F'
+      strokeWidth: 2
+  - id: c_taxonomy_skip
+    label: |-
+      taxonomy skipped
+      当前不经过
+      source -> topic -> taxonomy 规划
+    type: document
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#FEF3C7'
+      strokeColor: '#D97706'
+      fontColor: '#78350F'
+      strokeWidth: 2
+  - id: c_plan
+    label: build_topic_insertion_plan
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_write
+    label: |-
+      draft / review / apply
+      topic -> sections[] 写回 wiki
+    type: process
+    module: current_flow
+    size: large
+    style:
+      fillColor: '#DCFCE7'
+      strokeColor: '#15803D'
+      fontColor: '#14532D'
+  - id: c_backread
+    label: |-
+      回读
+      read_wiki_page
+      read_raw_source
+    type: terminal
+    module: current_flow
+    size: medium
+    style:
+      fillColor: '#E0F2FE'
+      strokeColor: '#0284C7'
+      fontColor: '#0C4A6E'
+      strokeWidth: 2
+  - id: t_upload
+    label: 上传 source / attachment
+    type: terminal
+    module: target_flow
+    size: medium
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: t_overview
+    label: |-
+      source overview
+      先看整份 source 的主题范围、上下文、scope
+    type: process
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: t_topic
+    label: |-
+      topic 决策
+      reuse existing topic
+      or create new topic
+    type: decision
+    module: target_flow
+    size: large
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: t_taxonomy
+    label: |-
+      taxonomy 决策
+      root -> new node / merge / leaf attach
+    type: decision
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: t_sections
+    label: |-
+      按正文切出 sections
+      保留贴源 body
+      不是只做 summary
+    type: process
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+  - id: t_attach
+    label: |-
+      section attach
+      挂到 topic / taxonomy / parent section
+    type: process
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+  - id: t_graph
+    label: |-
+      graph semantic write
+      entity / concept / assertion / relation
+    type: process
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+      strokeWidth: 2
+  - id: t_provenance
+    label: |-
+      source anchors
+      locator / excerpt / source path
+      支持 section / assertion 回源
+    type: process
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#E0F2FE'
+      strokeColor: '#0284C7'
+      fontColor: '#0C4A6E'
+      strokeWidth: 2
+  - id: t_write
+    label: |-
+      writer / reviewer
+      保持 topic -> sections 结构写回
+    type: process
+    module: target_flow
+    size: large
+    style:
+      fillColor: '#DBEAFE'
+      strokeColor: '#2563EB'
+      fontColor: '#1E3A8A'
+  - id: t_backread
+    label: |-
+      agent 读路径
+      taxonomy -> topic -> section -> evidence -> source
+    type: terminal
+    module: target_flow
+    size: xl
+    style:
+      fillColor: '#CCFBF1'
+      strokeColor: '#0F766E'
+      fontColor: '#134E4A'
+      strokeWidth: 2
+edges:
+  - from: c_upload
+    to: c_source
+    type: primary
+  - from: c_source
+    to: c_blocks
+    type: primary
+  - from: c_blocks
+    to: c_worker
+    type: primary
+  - from: c_worker
+    to: c_merge
+    type: primary
+  - from: c_merge
+    to: c_sections
+    type: primary
+  - from: c_sections
+    to: c_hosts
+    type: primary
+    label: 当前 host resolve 单位 = section
+  - from: c_hosts
+    to: c_taxonomy_skip
+    type: optional
+    label: taxonomy 缺失
+  - from: c_hosts
+    to: c_plan
+    type: primary
+  - from: c_plan
+    to: c_write
+    type: primary
+  - from: c_write
+    to: c_backread
+    type: primary
+  - from: t_upload
+    to: t_overview
+    type: primary
+  - from: t_overview
+    to: t_topic
+    type: primary
+    label: 先从 source 做主题判断
+  - from: t_topic
+    to: t_taxonomy
+    type: primary
+  - from: t_taxonomy
+    to: t_sections
+    type: primary
+  - from: t_sections
+    to: t_attach
+    type: primary
+  - from: t_attach
+    to: t_graph
+    type: primary
+  - from: t_sections
+    to: t_provenance
+    type: data
+  - from: t_graph
+    to: t_provenance
+    type: data
+  - from: t_graph
+    to: t_write
+    type: primary
+  - from: t_provenance
+    to: t_write
+    type: primary
+  - from: t_write
+    to: t_backread
+    type: primary

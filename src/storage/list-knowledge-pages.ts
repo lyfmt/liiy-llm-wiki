@@ -10,6 +10,8 @@ export async function listKnowledgePages(root: string, kind: KnowledgePageKind):
       ? paths.wikiSources
       : kind === 'entity'
         ? paths.wikiEntities
+        : kind === 'taxonomy'
+          ? paths.wikiTaxonomy
         : kind === 'topic'
           ? paths.wikiTopics
           : paths.wikiQueries;

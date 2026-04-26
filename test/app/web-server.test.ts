@@ -275,7 +275,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.settings.model).toBe('gpt-5.4');
         expect(chatOperations.body.project_env).toEqual({
           source: 'project_root_env',
-          keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
+          keys: ['RUNTIME_API_KEY']
         });
         expect(chatOperations.body.runtime_readiness).toMatchObject({
           ready: false,
@@ -433,7 +433,9 @@ describe('createWebServer', () => {
             base_url: 'http://runtime.example.invalid/v1',
             api_key_env: 'RUNTIME_API_KEY',
             project_env_contents:
-              'RUNTIME_API_KEY=web-updated-key\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\nMODEL_NOTES="operator ready"\n',
+              'RUNTIME_API_KEY=web-updated-key\n' +
+              'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n' +
+              'MODEL_NOTES="operator ready"\n',
             reasoning: true,
             context_window: 256000,
             max_tokens: 32768,
@@ -484,6 +486,9 @@ describe('createWebServer', () => {
             summary: string;
           };
         }>(`${baseUrl}/api/chat/operations`);
+        expect(await readFile(path.join(root, '.env'), 'utf8')).toContain(
+          'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy'
+        );
         expect(chatOperationsReady.body.runtime_readiness).toMatchObject({
           ready: true,
           status: 'ready',
@@ -1368,6 +1373,88 @@ describe('createWebServer', () => {
           ])
         });
       } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('starts auto knowledge insert uploads asynchronously and forwards run options', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    let launchInput: {
+      runId?: string;
+      maxPartExtractionConcurrency?: number;
+      resetKnowledgeGraphBeforeRun?: boolean;
+    } | null = null;
+    let resolveLaunch: (() => void) | null = null;
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async (input) => {
+          launchInput = {
+            runId: input.runId,
+            maxPartExtractionConcurrency: input.maxPartExtractionConcurrency,
+            resetKnowledgeGraphBeforeRun: input.resetKnowledgeGraphBeforeRun
+          };
+          await new Promise<void>((resolve) => {
+            resolveLaunch = resolve;
+          });
+          return { runId: input.runId ?? 'pipeline-missing', status: 'done' };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          ok: boolean;
+          pipeline_run_id: string;
+          pipeline_status: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true,
+            maxPartExtractionConcurrency: 3,
+            resetKnowledgeGraphBeforeRun: true
+          })
+        });
+
+        expect(upload.status).toBe(201);
+        expect(upload.body.pipeline_run_id).toMatch(/^pipeline-[0-9a-f-]{36}$/u);
+        expect(upload.body.pipeline_status).toBe('running');
+        expect(launchInput).toMatchObject({
+          runId: upload.body.pipeline_run_id,
+          maxPartExtractionConcurrency: 3,
+          resetKnowledgeGraphBeforeRun: true
+        });
+
+        const missing = await fetchJson<{ error: string }>(`${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`);
+        expect(missing.status).toBe(404);
+        expect(missing.body.error).toBe('pipeline_not_found');
+      } finally {
+        if (resolveLaunch) {
+          const completeLaunch = resolveLaunch as () => void;
+          completeLaunch();
+        }
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {

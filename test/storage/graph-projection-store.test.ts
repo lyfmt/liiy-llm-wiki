@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGraphEdge } from '../../src/domain/graph-edge.js';
+import { createKnowledgeInsertGraphWrite } from '../../src/domain/knowledge-insert-graph-write.js';
 import { createGraphNode } from '../../src/domain/graph-node.js';
 import { buildGraphProjection } from '../../src/storage/graph-projection-store.js';
 
@@ -1130,5 +1131,143 @@ describe('buildGraphProjection', () => {
         edges: []
       })
     ).toThrow('Graph projection root not found: topic:missing');
+  });
+
+  it('builds a readable projection from a knowledge-insert full graph write set', () => {
+    const graphWrite = createKnowledgeInsertGraphWrite({
+      topicTaxonomyArtifact: {
+        topics: [
+          {
+            sourceTopicId: 'source-topic-001',
+            topicSlug: 'design-patterns',
+            topicTitle: 'Design Patterns',
+            topicAction: 'reuse-topic',
+            sectionIds: ['section-001'],
+            taxonomyAction: 'attach-existing',
+            taxonomySlug: 'engineering',
+            taxonomy: {
+              rootTaxonomySlug: 'engineering',
+              parentTaxonomySlug: null,
+              leafTaxonomySlug: 'engineering'
+            },
+            conflictTaxonomySlugs: []
+          }
+        ]
+      },
+      topicDraftsArtifact: {
+        topics: [
+          {
+            topicSlug: 'design-patterns',
+            targetPath: 'wiki/topics/design-patterns.md',
+            sections: [
+              {
+                sectionId: 'section-001',
+                title: 'Pattern Intent',
+                body: 'Patch-first systems keep durable notes.',
+                source_refs: ['raw/accepted/design-patterns.md'],
+                evidence_anchor_ids: ['anchor-001'],
+                locators: ['raw/accepted/design-patterns.md#block-001']
+              }
+            ],
+            upsertArguments: {
+              kind: 'topic',
+              slug: 'design-patterns',
+              title: 'Design Patterns',
+              aliases: ['Pattern Intent'],
+              summary: 'Pattern overview.',
+              tags: ['engineering'],
+              source_refs: ['raw/accepted/design-patterns.md'],
+              outgoing_links: ['wiki/sources/src-001.md'],
+              status: 'active',
+              updated_at: '2026-04-23T00:00:00.000Z',
+              body: '# Design Patterns\n\n## Pattern Intent\n\nPatch-first systems keep durable notes.\n',
+              rationale: 'create deterministic topic draft from insertion plan src-001'
+            }
+          }
+        ]
+      },
+      sectionsArtifact: {
+        sections: [
+          {
+            sectionId: 'section-001',
+            title: 'Pattern Intent',
+            summary: 'Patch-first systems keep durable notes.',
+            body: 'Patch-first systems keep durable notes.',
+            entityIds: ['patch-first-system'],
+            assertionIds: ['patch-first-stability'],
+            evidenceAnchorIds: ['anchor-001'],
+            sourceSectionCandidateIds: ['sec-candidate-001'],
+            topicHints: ['design-patterns']
+          }
+        ]
+      },
+      mergedKnowledgeArtifact: {
+        inputArtifacts: ['state/artifacts/knowledge-insert/run-001/batches/batch-001.json'],
+        entities: [{ entityId: 'patch-first-system', name: 'Patch First System' }],
+        assertions: [
+          {
+            assertionId: 'patch-first-stability',
+            text: 'Patch-first writes stay stable.',
+            sectionCandidateId: 'sec-candidate-001',
+            evidenceAnchorIds: ['anchor-001'],
+            entityIds: ['patch-first-system']
+          }
+        ],
+        relations: [],
+        evidenceAnchors: [
+          {
+            anchorId: 'anchor-001',
+            blockId: 'block-001',
+            quote: 'Patch-first systems keep durable notes.',
+            title: 'Patterns intro anchor',
+            locator: 'design-patterns.md#introduction:p1',
+            order: 1,
+            heading_path: ['Introduction']
+          }
+        ],
+        sectionCandidates: [
+          {
+            sectionCandidateId: 'sec-candidate-001',
+            title: 'Pattern Intent',
+            summary: 'Patch-first systems keep durable notes.',
+            entityIds: ['patch-first-system'],
+            assertionIds: ['patch-first-stability'],
+            evidenceAnchorIds: ['anchor-001']
+          }
+        ],
+        topicHints: [{ topicSlug: 'design-patterns', confidence: 'high' }]
+      },
+      preparedResourceArtifact: {
+        manifestId: 'src-001',
+        rawPath: 'raw/accepted/design-patterns.md',
+        structuredMarkdown: '# Design Patterns\n\n## Pattern Intent\n\nPatch-first systems keep durable notes.\n',
+        sectionHints: [],
+        topicHints: ['design-patterns'],
+        sections: [{ headingPath: ['Design Patterns', 'Pattern Intent'], startLine: 3, endLine: 5 }],
+        metadata: {
+          title: 'Design Patterns',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:src-001',
+          importedAt: '2026-04-21T00:00:00.000Z',
+          preparedAt: '2026-04-23T00:00:00.000Z'
+        }
+      }
+    });
+
+    const projection = buildGraphProjection({
+      rootId: 'topic:design-patterns',
+      nodes: graphWrite.nodes,
+      edges: graphWrite.edges
+    });
+
+    expect(projection.root.id).toBe('topic:design-patterns');
+    expect(projection.taxonomy.map((node) => node.id)).toEqual(['taxonomy:engineering']);
+    expect(projection.sections[0]?.node.id).toBe('section:design-patterns#1');
+    expect(projection.sections[0]?.grounding.source_paths).toEqual(['raw/accepted/design-patterns.md']);
+    expect(projection.entities.map((node) => node.id)).toEqual(['entity:patch-first-system']);
+    expect(projection.assertions[0]?.node.id).toBe('assertion:patch-first-stability');
+    expect(projection.assertions[0]?.evidence[0]?.node.id).toBe('evidence:src-001#1');
+    expect(projection.assertions[0]?.evidence[0]?.source?.id).toBe('source:src-001');
   });
 });

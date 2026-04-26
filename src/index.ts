@@ -21,6 +21,19 @@ export type {
 } from './domain/graph-node.js';
 export { createGraphEdge } from './domain/graph-edge.js';
 export type { GraphEdge, GraphEdgeType } from './domain/graph-edge.js';
+export {
+  createKnowledgeInsertGraphWrite,
+  createKnowledgeInsertGraphWriteFromConnectedKnowledge
+} from './domain/knowledge-insert-graph-write.js';
+export type {
+  CreateKnowledgeInsertGraphWriteInput,
+  KnowledgeInsertGraphWrite,
+  KnowledgeInsertMergedKnowledgeArtifact,
+  KnowledgeInsertPreparedResourceArtifact,
+  KnowledgeInsertSectionsArtifact,
+  KnowledgeInsertTopicDraftArtifact,
+  KnowledgeInsertTopicTaxonomyArtifact
+} from './domain/knowledge-insert-graph-write.js';
 export { createSourceGroundedIngest } from './domain/source-grounded-ingest.js';
 export type {
   CreateSourceGroundedIngestInput,
@@ -71,6 +84,7 @@ export { createGraphDatabasePool, disposeGraphDatabasePools, getSharedGraphDatab
 export type { GraphDatabaseClient } from './storage/graph-database.js';
 export { buildGraphSchemaSql } from './storage/graph-schema.js';
 export { buildGraphProjection } from './storage/graph-projection-store.js';
+export { saveKnowledgeInsertGraphWrite, KnowledgeInsertGraphWriteConflictError, KNOWLEDGE_INSERT_GRAPH_WRITE_CONFLICT } from './storage/save-knowledge-insert-graph-write.js';
 export { listIncomingGraphEdges, listOutgoingGraphEdges, loadGraphNode, saveGraphEdge, saveGraphNode } from './storage/graph-store.js';
 export { loadProjectEnv, loadProjectEnvSync, saveProjectEnv, upsertProjectEnvValue, parseProjectEnv, upsertEnvAssignment } from './storage/project-env-store.js';
 export type { ProjectEnvState } from './storage/project-env-store.js';
@@ -82,6 +96,16 @@ export { runUpsertKnowledgePageFlow } from './flows/wiki/run-upsert-knowledge-pa
 export type { RunUpsertKnowledgePageFlowInput, RunUpsertKnowledgePageFlowResult } from './flows/wiki/run-upsert-knowledge-page-flow.js';
 export { runQueryFlow } from './flows/query/run-query-flow.js';
 export type { RunQueryFlowInput, RunQueryFlowResult } from './flows/query/run-query-flow.js';
+export { runKnowledgeInsertPipeline } from './flows/knowledge-insert/run-knowledge-insert-pipeline.js';
+export type {
+  RunKnowledgeInsertPipelineInput,
+  RunKnowledgeInsertPipelineResult
+} from './flows/knowledge-insert/run-knowledge-insert-pipeline.js';
+export { startKnowledgeInsertPipelineFromAttachment } from './flows/knowledge-insert/start-knowledge-insert-pipeline-from-attachment.js';
+export type {
+  StartKnowledgeInsertPipelineFromAttachmentInput,
+  StartKnowledgeInsertPipelineFromAttachmentResult
+} from './flows/knowledge-insert/start-knowledge-insert-pipeline-from-attachment.js';
 export { runReviewDecisionFlow } from './flows/review/run-review-decision-flow.js';
 export { syncReviewTask, buildReviewTaskId } from './flows/review/sync-review-task.js';
 export type { RunReviewDecisionFlowInput, RunReviewDecisionFlowResult, ReviewDecision } from './flows/review/run-review-decision-flow.js';
@@ -89,5 +113,5 @@ export { runLintFlow } from './flows/lint/run-lint-flow.js';
 export type { RunLintFlowInput, RunLintFlowResult } from './flows/lint/run-lint-flow.js';
 export { evaluateReviewGate } from './policies/review-gate.js';
 export type { ReviewGateDecision, ReviewGateSignals } from './policies/review-gate.js';
-export { buildIntentPlan, classifyIntent, createRuntimeContext, buildRuntimeSystemPrompt, createRuntimeRunState, resolveRuntimeModel, runRuntimeAgent, extractRuntimeToolOutcome, discoverRuntimeSkills, loadRuntimeSkillDocument, formatSkillsForPrompt, discoverRuntimeSubagents, createDraftKnowledgePageTool, createDraftQueryPageTool, createApplyDraftUpsertTool, createCreateSourceFromAttachmentTool, createFindSourceManifestTool, createIngestSourceTool, createListWikiPagesTool, createReadArtifactTool, createReadSkillTool, createRunSkillTool, createRunSubagentTool, createReadWikiPageTool, createListSourceManifestsTool, createReadSourceManifestTool, createReadRawSourceTool, createPrepareSourceResourceTool, createSplitResourceBlocksTool, createMergeKnowledgeCandidatesTool, createAuditExtractionCoverageTool, createUpsertKnowledgePageTool, createQueryWikiTool, createWriteArtifactTool, createLintWikiTool } from './runtime/index.js';
-export type { RuntimeIntent, RuntimeContext, CreateRuntimeContextInput, RuntimeToolOutcome, PersistedRuntimeToolOutcome, CreateRuntimeRunStateInput, ResolveRuntimeModelResult, RunRuntimeAgentInput, RunRuntimeAgentResult, BuildRuntimeSystemPromptOptions, SkillFrontmatter, SkillSummary, LoadedSkillDocument, RuntimeSkillDiagnostic, DiscoverRuntimeSkillsResult, SubagentFrontmatter, SubagentProfile, RunSubagentInput, SubagentReceipt, RuntimeSubagentDiagnostic, DiscoverRuntimeSubagentsResult, DraftKnowledgePageParameters, DraftQueryPageParameters, ApplyDraftUpsertParameters, CreateSourceFromAttachmentParameters, FindSourceManifestParameters, IngestSourceParameters, ListWikiPagesParameters, ReadArtifactParameters, ReadSkillParameters, RunSubagentParameters, RunSkillParameters, CreateRunSubagentToolOptions, CreateRunSkillToolOptions, ReadWikiPageParameters, ListSourceManifestsParameters, ReadSourceManifestParameters, ReadRawSourceParameters, PrepareSourceResourceParameters, PreparedSourceResourceArtifact, SplitResourceBlocksParameters, KnowledgeResourceBlock, SplitResourceBlocksArtifact, MergeKnowledgeCandidatesParameters, KnowledgeEntityCandidate, KnowledgeAssertionCandidate, KnowledgeRelationCandidate, KnowledgeEvidenceAnchor, MergedKnowledgeCandidatesArtifact, AuditExtractionCoverageParameters, ExtractionCoverageAuditArtifact, UpsertKnowledgePageParameters, QueryWikiParameters, WriteArtifactParameters, LintWikiParameters } from './runtime/index.js';
+export { buildIntentPlan, classifyIntent, createRuntimeContext, buildRuntimeSystemPrompt, createRuntimeRunState, resolveRuntimeModel, runRuntimeAgent, extractRuntimeToolOutcome, discoverRuntimeSkills, loadRuntimeSkillDocument, formatSkillsForPrompt, discoverRuntimeSubagents, createDraftKnowledgePageTool, createDraftTopicPagesFromPlanTool, createDraftQueryPageTool, createApplyDraftUpsertTool, createCreateSourceFromAttachmentTool, createFindSourceManifestTool, createIngestSourceTool, createListWikiPagesTool, createReadArtifactTool, createReadSkillTool, createRunSkillTool, createRunSubagentTool, createReadWikiPageTool, createListSourceManifestsTool, createReadSourceManifestTool, createReadRawSourceTool, createPrepareSourceResourceTool, createSplitResourceBlocksTool, createSplitBlockBatchesTool, createMergeExtractedKnowledgeTool, createMergeSectionCandidatesTool, createResolveSourceTopicsTool, createAssignSectionsToTopicsTool, createBuildTopicCatalogTool, createBuildTaxonomyCatalogTool, createResolveTopicTaxonomyTool, createAuditTaxonomyHostingTool, createResolveTopicHostsTool, createAuditTopicHostingTool, createBuildTopicInsertionPlanTool, renderTopicDraftsFromPlan, createAuditExtractionCoverageTool, createUpsertKnowledgeInsertGraphTool, createUpsertKnowledgePageTool, createQueryWikiTool, createWriteArtifactTool, createLintWikiTool } from './runtime/index.js';
+export type { RuntimeIntent, RuntimeContext, CreateRuntimeContextInput, RuntimeToolOutcome, PersistedRuntimeToolOutcome, CreateRuntimeRunStateInput, ResolveRuntimeModelResult, RunRuntimeAgentInput, RunRuntimeAgentResult, BuildRuntimeSystemPromptOptions, SkillFrontmatter, SkillSummary, LoadedSkillDocument, RuntimeSkillDiagnostic, DiscoverRuntimeSkillsResult, SubagentFrontmatter, SubagentProfile, RunSubagentInput, SubagentReceipt, RuntimeSubagentDiagnostic, DiscoverRuntimeSubagentsResult, DraftKnowledgePageParameters, DraftTopicPagesFromPlanParameters, DraftQueryPageParameters, ApplyDraftUpsertParameters, CreateSourceFromAttachmentParameters, FindSourceManifestParameters, IngestSourceParameters, ListWikiPagesParameters, ReadArtifactParameters, ReadSkillParameters, RunSubagentParameters, RunSkillParameters, CreateRunSubagentToolOptions, CreateRunSkillToolOptions, ReadWikiPageParameters, ListSourceManifestsParameters, ReadSourceManifestParameters, ReadRawSourceParameters, PrepareSourceResourceParameters, PreparedSourceResourceArtifact, SplitResourceBlocksParameters, KnowledgeResourceBlock, SplitResourceBlocksArtifact, SplitBlockBatchesParameters, SplitBlockBatchPlanEntry, SplitBlockBatchesArtifact, MergeExtractedKnowledgeParameters, KnowledgeEntityCandidate, KnowledgeAssertionCandidate, KnowledgeRelationCandidate, KnowledgeEvidenceAnchor, KnowledgeSectionCandidate, KnowledgeTopicHint, MergedExtractedKnowledgeArtifact, MergeSectionCandidatesParameters, NormalizedKnowledgeSection, MergedSectionCandidatesArtifact, ResolveSourceTopicsParameters, SourceTopicDecision, SourceTopicPlanEntry, SourceTopicPlanningArtifact, AssignSectionsToTopicsParameters, AttachedKnowledgeSection, AssignedSectionsArtifact, BuildTopicCatalogParameters, BuiltTopicCatalogEntry, TopicCatalogArtifact, BuildTaxonomyCatalogParameters, BuiltTaxonomyCatalogEntry, TaxonomyCatalogArtifact, ResolveTopicTaxonomyParameters, TopicTaxonomyAction, TopicTaxonomyPlacement, TopicTaxonomyPlanEntry, TopicTaxonomyPlanningArtifact, AuditTaxonomyHostingParameters, TaxonomyHostingAuditArtifact, ResolveTopicHostsParameters, TopicCatalogEntry, HostedKnowledgeSection, TopicHostingArtifact, AuditTopicHostingParameters, TopicHostingAuditArtifact, BuildTopicInsertionPlanParameters, TopicInsertionPlanSection, TopicInsertionPlanTopic, TopicInsertionPlanArtifact, ExistingTopicPageDraftInput, ExistingTopicPagesArtifact, TopicDraftUpsertArguments, RenderedTopicDraftSection, RenderedTopicDraft, RenderTopicDraftsArtifact, RenderTopicDraftsFromPlanInput, AuditExtractionCoverageParameters, ExtractionCoverageAuditArtifact, UpsertKnowledgeInsertGraphParameters, UpsertKnowledgePageParameters, QueryWikiParameters, WriteArtifactParameters, LintWikiParameters } from './runtime/index.js';

@@ -199,4 +199,7 @@ export interface ChatAttachmentUploadResponseDto {
   ok: true;
   session_id: string;
   attachment: ChatAttachmentRef;
+  pipeline_run_id?: string;
+  pipeline_status?: string;
+  pipeline_source_id?: string;
 }
