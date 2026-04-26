@@ -111,11 +111,11 @@
 
 ## 任务 7：最终验证
 
-- [ ] 运行 `npm run test`
-- [ ] 运行 `npm run typecheck`
-- [ ] 运行 `npm run typecheck:web`
-- [ ] 运行 `npm run build`
-- [ ] 运行 `npm run build:web`
-- [ ] 启动 `node dist/cli.js serve <project-root> 3000`
-- [ ] 用 Chrome DevTools 检查 `/app`、`/app/kb`、`/app/raw`、`/app/raw/:id`、Reading、Chat 上传区、Settings。
-- [ ] 仅在有测试或文档变更时提交：`test(web): 验证 zip 前端框架接入`
+- [x] 运行 `npm run test`
+- [x] 运行 `npm run typecheck`
+- [x] 运行 `npm run typecheck:web`
+- [x] 运行 `npm run build`
+- [x] 运行 `npm run build:web`
+- [x] 启动 `node dist/cli.js serve <project-root> 3000`
+- [x] 用 Chrome DevTools 检查 `/app`、`/app/kb`、`/app/raw`、`/app/raw/:id`、Reading、Chat 上传区、Settings。
+- [x] 仅在有测试或文档变更时提交：`test(web): 验证 zip 前端框架接入`
