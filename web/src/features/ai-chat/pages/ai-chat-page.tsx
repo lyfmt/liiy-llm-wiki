@@ -711,6 +711,8 @@ export function AiChatPage() {
 
               <textarea
                 ref={textareaRef}
+                name="chat_prompt"
+                aria-label="输入问题"
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="输入问题，Shift + Enter 换行"
@@ -783,6 +785,8 @@ export function AiChatPage() {
             <input
               ref={fileInputRef}
               type="file"
+              name="attachments"
+              aria-label="上传附件"
               multiple
               className="hidden"
               onChange={(event) => void handleFileSelection(event)}

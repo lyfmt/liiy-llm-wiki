@@ -107,7 +107,7 @@
 - [x] 步骤 2：保留 Chat 会话、上传、工具菜单、Knowledge Insert 状态轮询逻辑。
 - [x] 步骤 3：Settings 使用简洁顶部导航与居中配置表单，保留保存、探测模型、密钥写入逻辑。
 - [x] 步骤 4：运行 `npm run typecheck:web && npm run build:web`。
-- [ ] 步骤 5：Commit：`style(web): 统一 Chat 与设置页视觉`。
+- [x] 步骤 5：Commit：`style(web): 统一 Chat 与设置页视觉`。
 
 ## 任务 7：最终验证
 

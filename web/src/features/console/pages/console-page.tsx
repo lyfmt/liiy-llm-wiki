@@ -232,7 +232,13 @@ export function ConsolePage() {
           <p className="mt-3 text-sm leading-7 text-slate-600">配置 LLM 服务商、模型、API 端点与项目密钥。</p>
         </header>
 
-        <div className="space-y-8 rounded-[8px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
+          }}
+          className="space-y-8 rounded-[8px] border border-slate-200 bg-white p-6 shadow-sm md:p-8"
+        >
           <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-blue-50 text-brand">
               <Cpu size={20} />
@@ -244,10 +250,21 @@ export function ConsolePage() {
             <div className="text-sm text-slate-500">正在加载配置…</div>
           ) : (
             <div className="space-y-8">
+              <input
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+                name="username"
+                autoComplete="username"
+                value={provider}
+                readOnly
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-slate-900">提供商</label>
+                  <label htmlFor="chat-provider" className="mb-2 block text-sm font-bold text-slate-900">提供商</label>
                   <select
+                    id="chat-provider"
+                    name="provider"
                     value={formState.provider || ''}
                     onChange={(event) => {
                       const newProvider = event.target.value;
@@ -290,10 +307,13 @@ export function ConsolePage() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-slate-900">API 密钥</label>
+                  <label htmlFor="chat-api-key" className="mb-2 block text-sm font-bold text-slate-900">API 密钥</label>
                   <div className="relative">
                     <input
+                      id="chat-api-key"
+                      name="api_key"
                       type="password"
+                      autoComplete="new-password"
                       value={apiKey}
                       onChange={(event) =>
                         setApiKeyDrafts((current) => ({
@@ -310,9 +330,11 @@ export function ConsolePage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-bold text-slate-900">模型</label>
+                <label htmlFor="chat-model" className="mb-2 block text-sm font-bold text-slate-900">模型</label>
                 <div className="flex gap-4 items-center">
                   <select
+                    id="chat-model"
+                    name="model"
                     value={formState.model ?? ''}
                     onChange={(event) => {
                       const newModelId = event.target.value;
@@ -380,15 +402,14 @@ export function ConsolePage() {
 
           <div className="mt-10 flex justify-end border-t border-slate-100 pt-6">
             <button
-              type="button"
-              onClick={() => void handleSave()}
+              type="submit"
               disabled={saving || loading}
               className="flex items-center gap-2 rounded-[8px] bg-brand px-8 py-3 text-sm font-bold text-white shadow-brand-soft transition-colors hover:bg-blue-700 disabled:opacity-60"
             >
               <Save size={16} /> {saving ? '保存中…' : '保存设置'}
             </button>
           </div>
-        </div>
+        </form>
       </main>
 
       {showEndpointModal ? (
@@ -398,6 +419,8 @@ export function ConsolePage() {
               <Server size={18} className="text-brand" /> 自定义 API 端点
             </h3>
             <input
+              id="chat-base-url"
+              name="base_url"
               type="text"
               value={formState.base_url ?? ''}
               onChange={(event) => {
