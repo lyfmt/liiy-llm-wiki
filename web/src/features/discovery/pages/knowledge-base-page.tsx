@@ -12,6 +12,7 @@ type ResourceKind = DiscoveryItem['kind'] | 'all';
 
 const kindMetadata: Record<ResourceKind, { label: string; icon: LucideIcon; color: string }> = {
   all: { label: '全部文章', icon: Database, color: 'text-[#66CCFF]' },
+  taxonomy: { label: '分类 (Taxonomy)', icon: Folder, color: 'text-[#4DB8FF]' },
   topic: { label: '主题 (Topics)', icon: BookOpen, color: 'text-[#9B51E0]' },
   entity: { label: '实体 (Entities)', icon: Tag, color: 'text-[#FFB7C5]' },
   query: { label: '查询 (Queries)', icon: Search, color: 'text-[#4DB8FF]' },
@@ -28,6 +29,7 @@ export function KnowledgeBasePage() {
   const stats = useMemo(() => {
     return {
       all: allArticles.length,
+      taxonomy: allArticles.filter(a => a.kind === 'taxonomy').length,
       topic: allArticles.filter(a => a.kind === 'topic').length,
       entity: allArticles.filter(a => a.kind === 'entity').length,
       query: allArticles.filter(a => a.kind === 'query').length,
