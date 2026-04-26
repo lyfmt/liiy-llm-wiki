@@ -12,6 +12,7 @@ import type {
   DiscoveryResponse,
   KnowledgeNavigationResponse,
   KnowledgePageResponse,
+  KnowledgeInsertPipelineState,
   RawSourceDetail,
   RunDetailResponse,
   RunSummary,
@@ -56,6 +57,10 @@ export function getSources(): Promise<SourceSummary[]> {
 
 export function getRawSource(sourceId: string): Promise<RawSourceDetail> {
   return fetchJson<RawSourceDetail>(`/api/sources/${encodeURIComponent(sourceId)}/raw`);
+}
+
+export function getKnowledgeInsertPipeline(runId: string): Promise<KnowledgeInsertPipelineState> {
+  return fetchJson<KnowledgeInsertPipelineState>(`/api/knowledge-insert/pipelines/${encodeURIComponent(runId)}`);
 }
 
 export function getChatOperations(): Promise<ChatOperationsSummary> {

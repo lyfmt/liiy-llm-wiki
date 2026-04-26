@@ -25,6 +25,7 @@ import {
   getChatRunUi,
   getChatSession,
   getChatSessions,
+  getKnowledgeInsertPipeline,
   createChatSession,
   startChatRun,
   uploadChatAttachment
@@ -34,6 +35,7 @@ import type {
   ChatRunUiState,
   ChatSessionDetail,
   ChatSessionSummary,
+  KnowledgeInsertPipelineState,
   RunDetailResponse
 } from '@/lib/types';
 
@@ -56,6 +58,16 @@ type ToolCategory = {
     id: string;
     name: string;
   }>;
+};
+
+type PendingKnowledgeInsertPipeline = {
+  run_id: string;
+  file_name: string;
+  status: 'starting' | KnowledgeInsertPipelineState['status'];
+  current_stage: KnowledgeInsertPipelineState['currentStage'] | 'queued';
+  source_id: string | null;
+  error: string | null;
+  part_progress?: KnowledgeInsertPipelineState['partProgress'];
 };
 
 const toolCategories: ToolCategory[] = [
@@ -108,6 +120,7 @@ export function AiChatPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<string[]>(['web_search', 'mcp_fs']);
   const [pendingAttachments, setPendingAttachments] = useState<Array<ChatAttachmentRef & { session_id: string }>>([]);
+  const [knowledgeInsertPipelines, setKnowledgeInsertPipelines] = useState<PendingKnowledgeInsertPipeline[]>([]);
 
   async function loadSessions() {
     const value = await getChatSessions();
@@ -201,6 +214,60 @@ export function AiChatPage() {
   }, [selectedSessionId]);
 
   useEffect(() => {
+    if (!knowledgeInsertPipelines.some((pipeline) => pipeline.status === 'starting' || pipeline.status === 'running')) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      const activePipelines = knowledgeInsertPipelines.filter(
+        (pipeline) => pipeline.status === 'starting' || pipeline.status === 'running'
+      );
+
+      await Promise.all(activePipelines.map(async (pipeline) => {
+        try {
+          const state = await getKnowledgeInsertPipeline(pipeline.run_id);
+          if (cancelled) return;
+          setKnowledgeInsertPipelines((current) => current.map((item) =>
+            item.run_id === pipeline.run_id
+              ? {
+                  ...item,
+                  status: state.status,
+                  current_stage: state.currentStage,
+                  source_id: state.sourceId,
+                  error: state.errors.at(-1) ?? null,
+                  part_progress: state.partProgress
+                }
+              : item
+          ));
+        } catch (cause) {
+          if (cancelled) return;
+          setKnowledgeInsertPipelines((current) => current.map((item) =>
+            item.run_id === pipeline.run_id
+              ? {
+                  ...item,
+                  error: cause instanceof Error && cause.message.includes('pipeline_not_found')
+                    ? '等待流水线状态文件...'
+                    : cause instanceof Error
+                      ? cause.message
+                      : String(cause)
+                }
+              : item
+          ));
+        }
+      }));
+    };
+
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [knowledgeInsertPipelines]);
+
+  useEffect(() => {
     if (!selectedSessionId || selectedSession?.session.status !== 'running') {
       return;
     }
@@ -264,6 +331,20 @@ export function AiChatPage() {
           ...result.attachment,
           session_id: result.session_id
         });
+
+        if (result.pipeline_run_id) {
+          setKnowledgeInsertPipelines((current) => [
+            {
+              run_id: result.pipeline_run_id!,
+              file_name: file.name,
+              status: 'starting',
+              current_stage: 'queued',
+              source_id: result.pipeline_source_id ?? null,
+              error: null
+            },
+            ...current.filter((item) => item.run_id !== result.pipeline_run_id)
+          ]);
+        }
 
         if (!selectedSessionId || selectedSessionId !== result.session_id) {
           await loadSessions();
@@ -656,6 +737,10 @@ export function AiChatPage() {
                 </div>
               ) : null}
 
+              {knowledgeInsertPipelines.length ? (
+                <KnowledgeInsertPipelinePanel pipelines={knowledgeInsertPipelines.slice(0, 4)} />
+              ) : null}
+
               <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t-2 border-[#1C2833]">
                 <div className="flex items-center gap-2">
                   <button
@@ -704,6 +789,39 @@ export function AiChatPage() {
             />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function KnowledgeInsertPipelinePanel({ pipelines }: { pipelines: PendingKnowledgeInsertPipeline[] }) {
+  return (
+    <div className="border-t-2 border-[#1C2833] bg-[#F9FCFF] px-3 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5D6D7E]">
+        <Brain size={14} className="text-[#66CCFF]" />
+        Knowledge Insert Pipeline
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {pipelines.map((pipeline) => {
+          const progress = pipeline.part_progress
+            ? `${pipeline.part_progress.completed}/${pipeline.part_progress.total} parts`
+            : pipeline.source_id || pipeline.error || 'waiting for state';
+
+          return (
+            <div key={pipeline.run_id} className="border-2 border-[#1C2833] bg-white px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate font-bold text-[#1C2833]">{pipeline.file_name}</span>
+                <span className="shrink-0 rounded bg-[#E0F6FF] px-2 py-0.5 font-bold uppercase text-[#1C2833]">
+                  {pipeline.status}
+                </span>
+              </div>
+              <div className="mt-1 truncate font-bold uppercase text-[#5D6D7E]">
+                {pipeline.current_stage}
+              </div>
+              <div className="mt-1 truncate text-[#5D6D7E]">{progress}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -476,6 +476,34 @@ export interface ChatAttachmentUploadResponse {
   pipeline_source_id?: string;
 }
 
+export interface KnowledgeInsertPipelineState {
+  schemaVersion: 'knowledge-insert.pipeline.v3';
+  runId: string;
+  sourceId: string;
+  storageMode: 'pg-primary';
+  currentStage:
+    | 'source.uploaded'
+    | 'source.prepared'
+    | 'topics.planned'
+    | 'parts.planned'
+    | 'parts.materialized'
+    | 'parts.extracted'
+    | 'knowledge.connected'
+    | 'graph.prepared'
+    | 'graph.written'
+    | 'wiki.projected'
+    | 'lint.completed';
+  status: 'running' | 'needs_review' | 'done' | 'failed';
+  artifacts: Record<string, string>;
+  errors: string[];
+  partProgress?: {
+    total: number;
+    completed: number;
+    running: string[];
+    pending: number;
+  };
+}
+
 export interface TaskSummary {
   id: string;
   title: string;
