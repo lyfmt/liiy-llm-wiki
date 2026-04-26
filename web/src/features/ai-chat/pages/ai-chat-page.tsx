@@ -25,6 +25,7 @@ import {
   getChatRunUi,
   getChatSession,
   getChatSessions,
+  getKnowledgeInsertPipeline,
   createChatSession,
   startChatRun,
   uploadChatAttachment
@@ -34,12 +35,13 @@ import type {
   ChatRunUiState,
   ChatSessionDetail,
   ChatSessionSummary,
+  KnowledgeInsertPipelineState,
   RunDetailResponse
 } from '@/lib/types';
 
-const textHeading = 'text-[#1C2833]';
+const textHeading = 'text-slate-900';
 
-const initialAssistantMessage = 'CORE READY. AWAITING MISSION PARAMETERS. I WILL TRACK ALL TOOL EXECUTIONS AND SYNTHESIZE EVIDENCE IN REAL-TIME.';
+const initialAssistantMessage = '我在这里。可以直接提问，也可以上传资料，我会把附件写入 Knowledge Insert 流水线并持续更新状态。';
 
 type ToolStep = {
   id: string;
@@ -58,32 +60,42 @@ type ToolCategory = {
   }>;
 };
 
+type PendingKnowledgeInsertPipeline = {
+  run_id: string;
+  file_name: string;
+  status: 'starting' | KnowledgeInsertPipelineState['status'];
+  current_stage: KnowledgeInsertPipelineState['currentStage'] | 'queued';
+  source_id: string | null;
+  error: string | null;
+  part_progress?: KnowledgeInsertPipelineState['partProgress'];
+};
+
 const toolCategories: ToolCategory[] = [
   {
     id: 'mcp',
-    name: 'MCP (LOCAL & CLOUD)',
+    name: 'MCP',
     icon: <FileBox size={16} />,
     items: [
-      { id: 'mcp_fs', name: 'FILE SYSTEM' },
-      { id: 'mcp_state', name: 'RUN STATE' }
+      { id: 'mcp_fs', name: '文件系统' },
+      { id: 'mcp_state', name: '运行状态' }
     ]
   },
   {
     id: 'skills',
-    name: 'SKILLS (EXTENSIONS)',
+    name: '技能',
     icon: <Sparkles size={16} />,
     items: [
-      { id: 'skill_review', name: 'REVIEW SUMMARY' },
-      { id: 'skill_patch', name: 'PATCH DRAFTS' }
+      { id: 'skill_review', name: '审查摘要' },
+      { id: 'skill_patch', name: '补丁草稿' }
     ]
   },
   {
     id: 'tools',
-    name: 'TOOLS (CORE)',
+    name: '工具',
     icon: <Terminal size={16} />,
     items: [
-      { id: 'web_search', name: 'WEB SEARCH' },
-      { id: 'run_trace', name: 'RUN TRACE' }
+      { id: 'web_search', name: '网页搜索' },
+      { id: 'run_trace', name: '运行追踪' }
     ]
   }
 ];
@@ -108,6 +120,7 @@ export function AiChatPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<string[]>(['web_search', 'mcp_fs']);
   const [pendingAttachments, setPendingAttachments] = useState<Array<ChatAttachmentRef & { session_id: string }>>([]);
+  const [knowledgeInsertPipelines, setKnowledgeInsertPipelines] = useState<PendingKnowledgeInsertPipeline[]>([]);
 
   async function loadSessions() {
     const value = await getChatSessions();
@@ -201,6 +214,60 @@ export function AiChatPage() {
   }, [selectedSessionId]);
 
   useEffect(() => {
+    if (!knowledgeInsertPipelines.some((pipeline) => pipeline.status === 'starting' || pipeline.status === 'running')) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      const activePipelines = knowledgeInsertPipelines.filter(
+        (pipeline) => pipeline.status === 'starting' || pipeline.status === 'running'
+      );
+
+      await Promise.all(activePipelines.map(async (pipeline) => {
+        try {
+          const state = await getKnowledgeInsertPipeline(pipeline.run_id);
+          if (cancelled) return;
+          setKnowledgeInsertPipelines((current) => current.map((item) =>
+            item.run_id === pipeline.run_id
+              ? {
+                  ...item,
+                  status: state.status,
+                  current_stage: state.currentStage,
+                  source_id: state.sourceId,
+                  error: state.errors.at(-1) ?? null,
+                  part_progress: state.partProgress
+                }
+              : item
+          ));
+        } catch (cause) {
+          if (cancelled) return;
+          setKnowledgeInsertPipelines((current) => current.map((item) =>
+            item.run_id === pipeline.run_id
+              ? {
+                  ...item,
+                  error: cause instanceof Error && cause.message.includes('pipeline_not_found')
+                    ? '等待流水线状态文件...'
+                    : cause instanceof Error
+                      ? cause.message
+                      : String(cause)
+                }
+              : item
+          ));
+        }
+      }));
+    };
+
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [knowledgeInsertPipelines]);
+
+  useEffect(() => {
     if (!selectedSessionId || selectedSession?.session.status !== 'running') {
       return;
     }
@@ -265,6 +332,20 @@ export function AiChatPage() {
           session_id: result.session_id
         });
 
+        if (result.pipeline_run_id) {
+          setKnowledgeInsertPipelines((current) => [
+            {
+              run_id: result.pipeline_run_id!,
+              file_name: file.name,
+              status: 'starting',
+              current_stage: 'queued',
+              source_id: result.pipeline_source_id ?? null,
+              error: null
+            },
+            ...current.filter((item) => item.run_id !== result.pipeline_run_id)
+          ]);
+        }
+
         if (!selectedSessionId || selectedSessionId !== result.session_id) {
           await loadSessions();
           await loadSessionDetail(result.session_id, { syncUrl: true });
@@ -315,19 +396,19 @@ export function AiChatPage() {
   }
 
   const selectedStatusText = useMemo(() => {
-    if (uploading) return 'UPLOADING...';
-    if (submitting) return 'PROCESSING...';
+    if (uploading) return '上传中';
+    if (submitting) return '处理中';
     switch (selectedSession?.session.status) {
       case 'running':
-        return 'EXECUTING...';
+        return '运行中';
       case 'needs_review':
-        return 'AWAITING REVIEW';
+        return '等待确认';
       case 'done':
-        return 'COMPLETED';
+        return '已完成';
       case 'failed':
-        return 'FAILED';
+        return '失败';
       default:
-        return 'IDLE';
+        return '待命';
     }
   }, [selectedSession, submitting, uploading]);
 
@@ -351,7 +432,7 @@ export function AiChatPage() {
     const steps: ToolStep[] = [
       {
         id: 'thinking',
-        label: 'THINKING...',
+        label: '思考与规划',
         status: 'done',
         details: planDetails
       }
@@ -360,7 +441,7 @@ export function AiChatPage() {
     run.tool_outcomes.forEach((outcome, index) => {
       steps.push({
         id: `tool-${index}`,
-        label: `TOOL CALL: ${outcome.tool_name.toUpperCase()}`,
+        label: `工具调用：${outcome.tool_name}`,
         status: 'done',
         details: [outcome.summary, outcome.evidence.join('\n'), outcome.touched_files.join('\n')].filter(Boolean).join('\n\n')
       });
@@ -369,7 +450,7 @@ export function AiChatPage() {
     if (run.request_run.status !== 'running') {
       steps.push({
         id: 'formatting',
-        label: 'FINALIZING...',
+        label: '整理回答',
         status: 'done',
         details: run.request_run.result_summary
       });
@@ -379,31 +460,31 @@ export function AiChatPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[#FFFFFF] p-6 font-sans">
-      <div className="flex h-full gap-6">
-        <div className={`w-[300px] shrink-0 overflow-hidden bg-white border-r-4 border-[#1C2833] flex flex-col`}>
-          <div className="relative h-[240px] w-full shrink-0 border-b-4 border-[#1C2833]">
+    <div className="h-screen overflow-hidden bg-slate-50 p-4 font-sans text-slate-900 md:p-6">
+      <div className="flex h-full gap-4 md:gap-6">
+        <div className="flex w-[300px] shrink-0 flex-col overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-sm">
+          <div className="relative h-[190px] w-full shrink-0 border-b border-slate-100">
             <MagicCircleBackground />
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col bg-white p-6">
-            <h3 className={`mb-1 text-2xl font-bold ${textHeading} shrink-0 uppercase tracking-tighter`}>SYSTEM MONITOR</h3>
-            <p className="mb-6 flex shrink-0 items-center gap-2 text-lg font-bold text-[#66CCFF] uppercase">
+            <h3 className={`mb-1 shrink-0 text-xl font-bold ${textHeading}`}>会话与状态</h3>
+            <p className="mb-6 flex shrink-0 items-center gap-2 text-sm font-semibold text-brand">
               <span className="relative flex h-3 w-3">
-                <span className="absolute inline-flex h-full w-full animate-ping bg-[#66CCFF] opacity-75"></span>
-                <span className="relative inline-flex h-3 w-3 bg-[#66CCFF]"></span>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-40"></span>
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-brand"></span>
               </span>
-              STATUS: {selectedStatusText}
+              {selectedStatusText}
             </p>
 
             <div className="mb-3 flex shrink-0 items-center justify-between">
-              <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">MISSION LOG</h4>
+              <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Sessions</h4>
               <button
                 type="button"
                 onClick={() => void handleCreateSession()}
-                className="text-xs font-bold text-[#66CCFF] hover:underline uppercase"
+                className="rounded-[8px] px-2 py-1 text-xs font-semibold text-brand hover:bg-blue-50"
               >
-                + NEW MISSION
+                新建
               </button>
             </div>
             <div className="mb-6 min-h-[120px] flex-1 space-y-3 overflow-y-auto pr-1">
@@ -415,75 +496,75 @@ export function AiChatPage() {
                       key={session.session_id}
                       type="button"
                       onClick={() => void loadSessionDetail(session.session_id)}
-                      className={`group w-full border-2 p-3 text-left transition-all ${
+                      className={`group w-full rounded-[8px] border p-3 text-left transition-colors ${
                         active
-                          ? 'border-[#1C2833] bg-[#F0F8FF] shadow-[2px_2px_0_0_#1C2833]'
-                          : 'border-transparent bg-white hover:border-[#1C2833]'
+                          ? 'border-blue-200 bg-blue-50'
+                          : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="mb-1 flex items-center gap-2 text-[#1C2833]">
-                        <MessageSquare size={16} className="shrink-0 text-[#66CCFF]" />
-                        <span className="truncate text-md font-bold uppercase">{session.title || 'UNTITLED MISSION'}</span>
+                      <div className="mb-1 flex items-center gap-2 text-slate-900">
+                        <MessageSquare size={16} className="shrink-0 text-brand" />
+                        <span className="truncate text-sm font-bold">{session.title || '未命名会话'}</span>
                       </div>
-                      <p className="line-clamp-2 pl-6 text-[12px] font-bold text-gray-400 uppercase leading-tight">{session.summary}</p>
+                      <p className="line-clamp-2 pl-6 text-xs leading-relaxed text-slate-500">{session.summary}</p>
                     </button>
                   );
                 })
               ) : (
-                <div className="border-2 border-dashed border-gray-200 p-3 text-md font-bold text-[#5D6D7E] uppercase">NO LOG RECORDS.</div>
+                <div className="rounded-[8px] border border-dashed border-slate-200 p-3 text-sm text-slate-500">还没有会话记录。</div>
               )}
             </div>
 
-            <div className="mt-auto shrink-0 space-y-6 border-t-2 border-[#1C2833] pt-6">
+            <div className="mt-auto shrink-0 space-y-5 border-t border-slate-100 pt-5">
               <div>
-                <div className="mb-1 flex justify-between text-sm font-bold text-[#5D6D7E] uppercase">
-                  <span>MEM LOAD</span>
+                <div className="mb-2 flex justify-between text-xs font-semibold text-slate-500">
+                  <span>上下文</span>
                   <span>{contextLoad}%</span>
                 </div>
-                <div className="h-3 w-full bg-gray-100 border-2 border-[#1C2833]">
-                  <div className="h-full bg-[#66CCFF]" style={{ width: `${contextLoad}%` }}></div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-brand" style={{ width: `${contextLoad}%` }}></div>
                 </div>
               </div>
 
               <div>
-                <div className="mb-1 flex justify-between text-sm font-bold text-[#5D6D7E] uppercase">
-                  <span>TOKEN USAGE</span>
+                <div className="mb-2 flex justify-between text-xs font-semibold text-slate-500">
+                  <span>工具使用</span>
                   <span>{tokenLoad}%</span>
                 </div>
-                <div className="h-3 w-full bg-gray-100 border-2 border-[#1C2833]">
-                  <div className="h-full bg-[#FFB7C5]" style={{ width: `${tokenLoad}%` }}></div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-sky-300" style={{ width: `${tokenLoad}%` }}></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className={`flex min-w-[400px] flex-1 flex-col overflow-hidden bg-white pixel-border`}>
-          <div className="z-10 flex items-center justify-between border-b-4 border-[#1C2833] bg-white p-5">
+        <div className="flex min-w-[400px] flex-1 flex-col overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-sm">
+          <div className="z-10 flex items-center justify-between border-b border-slate-100 bg-white p-5">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center bg-[#E0F6FF] text-[#1C2833] border-2 border-[#1C2833]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-[8px] bg-blue-50 text-brand">
                 <Terminal size={24} />
               </div>
-              <h2 className={`text-2xl font-bold ${textHeading} uppercase tracking-tighter`}>OPERATIONS CONSOLE</h2>
+              <h2 className={`text-2xl font-bold ${textHeading}`}>AI 助手</h2>
             </div>
             <a
-              href="/app/discovery"
-              className="pixel-button bg-[#FFB7C5] hover:bg-[#FF8A9B]"
-              title="EXIT CONSOLE"
+              href="/app"
+              className="rounded-[8px] border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-brand"
+              title="返回主页"
             >
               <LogOut size={20} />
             </a>
           </div>
 
-          <div className="flex-1 space-y-8 overflow-y-auto bg-[#F9FCFF] p-8">
+          <div className="flex-1 space-y-7 overflow-y-auto bg-slate-50/70 p-6 md:p-8">
             {!selectedSession?.runs.length && !loading && !sessionLoading ? (
               <div className="flex justify-start">
                 <div className="flex max-w-[85%] gap-4">
-                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
+                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-brand text-white">
                     <Sparkles size={20} />
                   </div>
-                  <div className="bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833]">
-                    {initialAssistantMessage.toUpperCase()}
+                  <div className="rounded-[8px] bg-white p-4 text-base font-medium leading-7 text-slate-700 shadow-sm ring-1 ring-slate-100">
+                    {initialAssistantMessage}
                   </div>
                 </div>
               </div>
@@ -493,7 +574,7 @@ export function AiChatPage() {
               .map((run) => {
                 const isLatest = run.request_run.run_id === selectedRun?.request_run.run_id;
                 const runToolSteps = getToolSteps(run);
-                const runPreviewTitle = run.request_run.intent.toUpperCase() || 'RUN ACCEPTED';
+                const runPreviewTitle = run.request_run.intent || '已收到请求';
                 const runPreviewBody = compactPreviewText(
                   run.result_markdown || run.draft_markdown || run.request_run.result_summary || ''
                 );
@@ -501,10 +582,10 @@ export function AiChatPage() {
                 return (
                   <div key={run.request_run.run_id} className="space-y-8">
                     <div className="flex justify-end">
-                      <div className="max-w-[85%] bg-white p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
+                      <div className="max-w-[85%] rounded-[8px] bg-brand px-4 py-3 text-base font-medium leading-7 text-white shadow-sm">
                         <div>{run.request_run.user_request}</div>
                         {run.request_run.attachments.length ? (
-                          <div className="mt-3 border-t-2 border-[#1C2833] pt-3 text-sm text-[#5D6D7E]">
+                          <div className="mt-3 border-t border-white/25 pt-3 text-sm text-blue-50">
                             {run.request_run.attachments.map((attachment) => (
                               <div key={attachment.attachment_id}>{attachment.file_name}</div>
                             ))}
@@ -525,11 +606,11 @@ export function AiChatPage() {
 
                     <div className="flex justify-start">
                       <div className="flex max-w-[85%] gap-4">
-                        <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
+                        <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-brand text-white">
                           <Sparkles size={20} />
                         </div>
                         <div className="flex w-full flex-col gap-4">
-                          <div className="w-fit bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833] shadow-[4px_4px_0_0_#1C2833] uppercase">
+                          <div className="w-fit rounded-[8px] bg-white p-4 text-base font-medium leading-7 text-slate-700 shadow-sm ring-1 ring-slate-100">
                             {run.request_run.result_summary}
                           </div>
                           {isLatest && uiState && (
@@ -550,63 +631,63 @@ export function AiChatPage() {
             {sessionLoading && !selectedSession ? (
               <div className="flex justify-start">
                 <div className="flex max-w-[85%] gap-4">
-                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
+                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-brand text-white">
                     <Sparkles size={20} />
                   </div>
-                  <div className="bg-[#66CCFF] p-4 text-xl font-bold leading-tight text-[#1C2833] border-2 border-[#1C2833]">
-                    LOADING MISSION DATA...
+                  <div className="rounded-[8px] bg-white p-4 text-base font-medium leading-7 text-slate-700 shadow-sm ring-1 ring-slate-100">
+                    正在加载会话…
                   </div>
                 </div>
               </div>
             ) : null}
           </div>
 
-          <div className="relative border-t-4 border-[#1C2833] bg-white p-6">
+          <div className="relative border-t border-slate-100 bg-white p-5">
             {showToolMenu ? <div className="fixed inset-0 z-40" onClick={() => setShowToolMenu(false)}></div> : null}
 
             <form
               onSubmit={(event) => void handleSend(event)}
-              className="relative z-10 flex w-full flex-col border-4 border-[#1C2833] bg-white shadow-[4px_4px_0_0_#1C2833] transition-all focus-within:bg-[#F9FCFF]"
+              className="relative z-10 flex w-full flex-col rounded-[8px] border border-slate-200 bg-white shadow-sm transition-colors focus-within:border-blue-200 focus-within:bg-blue-50/20"
             >
               {showToolMenu ? (
-                <div className="absolute bottom-[56px] left-[50px] z-50 flex w-[300px] origin-bottom-left animate-in zoom-in-95 flex-col overflow-hidden border-4 border-[#1C2833] bg-white shadow-[8px_8px_0_0_rgba(0,0,0,0.1)] fade-in">
-                  <div className="flex items-center justify-between border-b-4 border-[#1C2833] bg-[#F9FCFF] p-3">
-                    <span className="flex items-center gap-2 text-sm font-bold text-[#1C2833] uppercase">
-                      <Blocks size={16} className="text-[#66CCFF]" />
-                      MODULE CONFIG
+                <div className="absolute bottom-[56px] left-[50px] z-50 flex w-[300px] origin-bottom-left animate-in zoom-in-95 flex-col overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-xl fade-in">
+                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 p-3">
+                    <span className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                      <Blocks size={16} className="text-brand" />
+                      工具模块
                     </span>
-                    <button type="button" onClick={() => setShowToolMenu(false)} className="text-[#1C2833] hover:text-[#FFB7C5]">
+                    <button type="button" onClick={() => setShowToolMenu(false)} className="text-slate-500 hover:text-slate-900">
                       <X size={16} />
                     </button>
                   </div>
 
                   <div className="max-h-[320px] overflow-y-auto">
                     {toolCategories.map((category) => (
-                      <div key={category.id} className="last:border-0 border-b-2 border-[#1C2833]">
+                      <div key={category.id} className="border-b border-slate-100 last:border-0">
                         <div
-                          className={`flex cursor-pointer items-center justify-between p-3 transition-colors ${expandedCategory === category.id ? 'bg-[#F0F8FF]' : 'hover:bg-gray-50'}`}
+                          className={`flex cursor-pointer items-center justify-between p-3 transition-colors ${expandedCategory === category.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
                           onClick={() => setExpandedCategory((current) => (current === category.id ? null : category.id))}
                         >
-                          <div className="flex items-center gap-2 text-[#1C2833] font-bold">
-                            <div className="text-[#1C2833]">{category.icon}</div>
+                          <div className="flex items-center gap-2 font-bold text-slate-900">
+                            <div className="text-slate-500">{category.icon}</div>
                             <span className="text-sm">{category.name}</span>
                           </div>
-                          <ChevronDown size={16} className={`text-[#1C2833] transition-transform duration-200 ${expandedCategory === category.id ? 'rotate-180' : ''}`} />
+                          <ChevronDown size={16} className={`text-slate-500 transition-transform duration-200 ${expandedCategory === category.id ? 'rotate-180' : ''}`} />
                         </div>
 
                         {expandedCategory === category.id ? (
-                          <div className="space-y-1 border-t-2 border-[#1C2833] bg-[#F9FCFF] px-2 py-2 shadow-inner">
+                          <div className="space-y-1 border-t border-slate-100 bg-slate-50 px-2 py-2">
                             {category.items.map((item) => {
                               const isActive = activeTools.includes(item.id);
                               return (
                                 <div
                                   key={item.id}
-                                  className="flex cursor-pointer items-center justify-between p-2 hover:bg-white"
+                                  className="flex cursor-pointer items-center justify-between rounded-[8px] p-2 hover:bg-white"
                                   onClick={() => toggleTool(item.id)}
                                 >
-                                  <span className="text-[14px] font-bold text-[#5D6D7E] uppercase">{item.name}</span>
-                                  <div className={`flex h-4 w-8 items-center border-2 border-[#1C2833] p-[2px] transition-colors duration-300 ${isActive ? 'bg-[#66CCFF]' : 'bg-gray-200'}`}>
-                                    <div className={`h-2 w-2 transform bg-[#1C2833] transition-transform duration-300 ${isActive ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                  <span className="text-sm font-semibold text-slate-600">{item.name}</span>
+                                  <div className={`flex h-5 w-9 items-center rounded-full p-[2px] transition-colors duration-300 ${isActive ? 'bg-brand' : 'bg-slate-200'}`}>
+                                    <div className={`h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-300 ${isActive ? 'translate-x-4' : 'translate-x-0'}`}></div>
                                   </div>
                                 </div>
                               );
@@ -622,18 +703,20 @@ export function AiChatPage() {
               <button
                 type="button"
                 onClick={() => setIsExpanded((current) => !current)}
-                className="absolute right-3 top-3 z-20 bg-white p-1 text-[#1C2833] border-2 border-[#1C2833] hover:bg-[#F0F8FF]"
-                title={isExpanded ? 'COLLAPSE' : 'EXPAND'}
+                className="absolute right-3 top-3 z-20 rounded-[8px] bg-white p-1 text-slate-500 hover:bg-blue-50 hover:text-brand"
+                title={isExpanded ? '收起' : '展开'}
               >
                 {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               </button>
 
               <textarea
                 ref={textareaRef}
+                name="chat_prompt"
+                aria-label="输入问题"
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="INPUT COMMAND... (SHIFT + ENTER FOR NEWLINE)"
-                className={`w-full resize-y bg-transparent p-4 pr-12 text-2xl font-bold leading-tight text-[#1C2833] placeholder-gray-400 focus:outline-none uppercase ${isExpanded ? 'min-h-[160px]' : 'min-h-[64px] max-h-[400px]'}`}
+                placeholder="输入问题，Shift + Enter 换行"
+                className={`w-full resize-y bg-transparent p-4 pr-12 text-base leading-7 text-slate-900 placeholder-slate-400 focus:outline-none ${isExpanded ? 'min-h-[160px]' : 'min-h-[64px] max-h-[400px]'}`}
                 rows={1}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
@@ -644,11 +727,11 @@ export function AiChatPage() {
               />
 
               {pendingAttachments.length ? (
-                <div className="flex flex-wrap gap-2 border-t-2 border-[#1C2833] px-3 py-2">
+                <div className="flex flex-wrap gap-2 border-t border-slate-100 px-3 py-2">
                   {pendingAttachments.map((attachment) => (
                     <div
                       key={attachment.attachment_id}
-                      className="border-2 border-[#1C2833] bg-[#F9FCFF] px-2 py-1 text-xs font-bold uppercase text-[#1C2833]"
+                      className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-slate-700"
                     >
                       {attachment.file_name}
                     </div>
@@ -656,13 +739,17 @@ export function AiChatPage() {
                 </div>
               ) : null}
 
-              <div className="flex items-center justify-between px-3 pb-3 pt-1 border-t-2 border-[#1C2833]">
+              {knowledgeInsertPipelines.length ? (
+                <KnowledgeInsertPipelinePanel pipelines={knowledgeInsertPipelines.slice(0, 4)} />
+              ) : null}
+
+              <div className="flex items-center justify-between border-t border-slate-100 px-3 pb-3 pt-3">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2 text-[#1C2833] hover:bg-[#F0F8FF] border-2 border-transparent hover:border-[#1C2833]"
-                    title="ATTACH FILE"
+                    className="rounded-[8px] p-2 text-slate-500 hover:bg-blue-50 hover:text-brand"
+                    title="上传附件"
                   >
                     <Paperclip size={20} />
                   </button>
@@ -670,12 +757,12 @@ export function AiChatPage() {
                   <button
                     type="button"
                     onClick={() => setShowToolMenu((current) => !current)}
-                    className={`p-2 border-2 ${showToolMenu ? 'bg-[#E0F6FF] border-[#1C2833]' : 'border-transparent hover:border-[#1C2833] hover:bg-[#F0F8FF]'}`}
-                    title="MODULES"
+                    className={`rounded-[8px] p-2 transition-colors ${showToolMenu ? 'bg-blue-50 text-brand' : 'text-slate-500 hover:bg-blue-50 hover:text-brand'}`}
+                    title="工具模块"
                   >
                     <div className="relative">
                       <Blocks size={20} />
-                      {activeTools.length ? <span className="absolute -right-1 -top-1 h-3 w-3 bg-[#FFB7C5] border-2 border-[#1C2833]"></span> : null}
+                      {activeTools.length ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-sky-300 ring-2 ring-white"></span> : null}
                     </div>
                   </button>
                 </div>
@@ -684,13 +771,13 @@ export function AiChatPage() {
                   <button
                     type="submit"
                     disabled={!input.trim() || submitting || uploading}
-                    className={`pixel-button text-xl px-6 py-2 ${
+                    className={`inline-flex items-center gap-2 rounded-[8px] px-5 py-2.5 text-sm font-bold text-white transition-colors ${
                       input.trim() && !submitting && !uploading
-                        ? 'bg-[#66CCFF]'
-                        : 'opacity-50 grayscale cursor-not-allowed'
+                        ? 'bg-brand hover:bg-blue-700'
+                        : 'cursor-not-allowed bg-slate-300'
                     }`}
                   >
-                    EXECUTE <Send size={20} className="ml-2 inline" />
+                    发送 <Send size={18} />
                   </button>
                 </div>
               </div>
@@ -698,12 +785,47 @@ export function AiChatPage() {
             <input
               ref={fileInputRef}
               type="file"
+              name="attachments"
+              aria-label="上传附件"
               multiple
               className="hidden"
               onChange={(event) => void handleFileSelection(event)}
             />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function KnowledgeInsertPipelinePanel({ pipelines }: { pipelines: PendingKnowledgeInsertPipeline[] }) {
+  return (
+    <div className="border-t border-slate-100 bg-blue-50/40 px-3 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+        <Brain size={14} className="text-brand" />
+        Knowledge Insert Pipeline
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {pipelines.map((pipeline) => {
+          const progress = pipeline.part_progress
+            ? `${pipeline.part_progress.completed}/${pipeline.part_progress.total} parts`
+            : pipeline.source_id || pipeline.error || 'waiting for state';
+
+          return (
+            <div key={pipeline.run_id} className="rounded-[8px] border border-blue-100 bg-white px-3 py-2 text-xs shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate font-bold text-slate-900">{pipeline.file_name}</span>
+                <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 font-bold uppercase text-brand">
+                  {pipeline.status}
+                </span>
+              </div>
+              <div className="mt-1 truncate font-semibold text-slate-600">
+                {pipeline.current_stage}
+              </div>
+              <div className="mt-1 truncate text-slate-500">{progress}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -738,12 +860,11 @@ function inferMimeTypeFromName(fileName: string): string {
 
 function MagicCircleBackground() {
   return (
-    <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-gradient-to-br from-[#1a2980] to-[#66CCFF]">
-      <div className="absolute h-48 w-48 animate-[spin_10s_linear_infinite] border-4 border-[#FFB7C5]/30"></div>
-      <div className="absolute h-32 w-32 animate-[spin_15s_linear_infinite_reverse] border-2 border-dashed border-white/50"></div>
-      <div className="absolute h-20 w-20 animate-[spin_5s_linear_infinite] border-4 border-[#66CCFF]/60"></div>
-      <div className="relative z-10 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]">
-        <Brain size={80} strokeWidth={1.5} />
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_40%,#dff1ff_0,#f8fbff_48%,#ffffff_100%)]">
+      <div className="absolute h-36 w-36 rounded-full border border-blue-200"></div>
+      <div className="absolute h-24 w-24 rounded-[8px] border border-blue-100 bg-white/60 shadow-sm"></div>
+      <div className="relative z-10 text-brand">
+        <Brain size={70} strokeWidth={1.5} />
       </div>
     </div>
   );
@@ -756,9 +877,9 @@ function ToolStepItem({ step }: { step: ToolStep }) {
   return (
     <div className="mb-2 flex max-w-[90%] flex-col gap-1">
       <div
-        className={`flex w-fit items-center gap-3 border-2 px-3 py-2 text-md font-bold transition-all uppercase ${
-          hasDetails ? 'cursor-pointer hover:bg-white border-[#1C2833]' : 'text-gray-400 border-gray-200'
-        } ${isOpen ? 'bg-white shadow-[2px_2px_0_0_#1C2833]' : 'bg-transparent'}`}
+        className={`flex w-fit items-center gap-3 rounded-[8px] border px-3 py-2 text-sm font-semibold transition-colors ${
+          hasDetails ? 'cursor-pointer border-slate-200 text-slate-700 hover:bg-white' : 'border-slate-100 text-slate-400'
+        } ${isOpen ? 'bg-white shadow-sm' : 'bg-transparent'}`}
         onClick={() => (hasDetails ? setIsOpen((current) => !current) : undefined)}
       >
         {hasDetails ? (
@@ -766,12 +887,12 @@ function ToolStepItem({ step }: { step: ToolStep }) {
         ) : (
           <div className="w-[18px]"></div>
         )}
-        <span className="font-mono tracking-tighter">{step.label}</span>
-        {step.status === 'done' ? <CheckCircle2 size={16} className="ml-2 text-[#66CCFF]" /> : null}
+        <span>{step.label}</span>
+        {step.status === 'done' ? <CheckCircle2 size={16} className="ml-2 text-brand" /> : null}
       </div>
 
       {isOpen && hasDetails ? (
-        <div className="animate-in slide-in-from-top-1 fade-in ml-10 mr-2 overflow-x-auto border-2 border-[#1C2833] bg-white p-4 font-mono text-sm text-[#1C2833] shadow-[2px_2px_0_0_#1C2833] duration-200 whitespace-pre-wrap uppercase leading-tight">
+        <div className="animate-in slide-in-from-top-1 fade-in ml-10 mr-2 overflow-x-auto rounded-[8px] border border-slate-200 bg-white p-4 font-mono text-sm leading-6 text-slate-700 shadow-sm duration-200 whitespace-pre-wrap">
           {step.details}
         </div>
       ) : null}
@@ -793,34 +914,34 @@ function PreviewCard({
   if (!uiState || !uiState.actions.length) return null;
 
   return (
-    <div className="mt-2 max-w-[600px] bg-white border-4 border-[#1C2833] shadow-[6px_6px_0_0_#1C2833] animate-in slide-in-from-bottom-2 self-start transform transition-all">
-      <div className="flex items-center gap-3 border-b-2 border-[#1C2833] bg-[#F9FCFF] px-4 py-3">
-        <FileText className="text-[#1C2833]" size={20} />
-        <span className="text-sm font-bold uppercase tracking-widest text-[#1C2833]">SYSTEM OUTPUT PREVIEW</span>
+    <div className="mt-2 max-w-[600px] animate-in slide-in-from-bottom-2 self-start overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-sm transition-all">
+      <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
+        <FileText className="text-brand" size={20} />
+        <span className="text-sm font-bold text-slate-700">输出预览</span>
       </div>
 
-      <div className="min-h-[120px] p-6 text-[#1C2833]">
-        <h1 className="mb-4 text-3xl font-extrabold uppercase tracking-tighter">{title}</h1>
-        <p className="border-l-4 border-[#66CCFF] py-2 pl-4 text-xl font-bold leading-tight uppercase text-[#5D6D7E]">{content}</p>
-        <div className="mt-8 flex h-32 w-full items-center justify-center border-2 border-[#1C2833] bg-[#F0F8FF] grayscale opacity-30">
+      <div className="min-h-[120px] p-6 text-slate-900">
+        <h1 className="mb-4 text-2xl font-bold leading-tight">{title}</h1>
+        <p className="border-l-4 border-brand py-2 pl-4 text-base font-medium leading-7 text-slate-600">{content}</p>
+        <div className="mt-8 flex h-32 w-full items-center justify-center rounded-[8px] border border-blue-100 bg-blue-50 text-brand opacity-70">
           <ImageIcon size={48} />
         </div>
       </div>
 
-      <div className={`grid ${uiState.actions.length > 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-2 border-t-2 border-[#1C2833] p-4 bg-gray-50`}>
+      <div className={`grid ${uiState.actions.length > 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'} gap-2 border-t border-slate-100 bg-slate-50 p-4`}>
         {uiState.actions.map((action, index) => {
-          let bgColor = 'bg-white';
-          if (action.kind === 'approve') bgColor = 'bg-[#66CCFF]';
-          if (action.kind === 'retry' || action.kind === 'clarify') bgColor = 'bg-[#FFB7C5]';
+          let className = 'border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50';
+          if (action.kind === 'approve') className = 'bg-brand text-white hover:bg-blue-700';
+          if (action.kind === 'retry' || action.kind === 'clarify') className = 'border border-blue-100 bg-blue-50 text-brand hover:bg-blue-100';
 
           return (
             <button
               key={index}
               type="button"
               onClick={() => onAction(action.prompt || action.label)}
-              className={`pixel-button ${bgColor} text-lg uppercase ${uiState.actions.length === 3 && index === 2 ? 'col-span-2' : ''}`}
+              className={`rounded-[8px] px-4 py-2.5 text-sm font-bold transition-colors ${className} ${uiState.actions.length === 3 && index === 2 ? 'col-span-2' : ''}`}
             >
-              [{index + 1}] {action.label}
+              {action.label}
             </button>
           );
         })}

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,6 +37,95 @@ interface CapturedChatRunInput {
 }
 
 describe('createWebServer', () => {
+  it('serves readonly raw source details from accepted raw documents', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-raw-source-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await mkdir(path.join(root, 'raw', 'accepted'), { recursive: true });
+      await mkdir(path.join(root, 'raw', 'inbox'), { recursive: true });
+      await writeFile(path.join(root, 'raw', 'accepted', 'design.md'), 'first line\nsecond line\n', 'utf8');
+      await writeFile(path.join(root, 'raw', 'inbox', 'draft.md'), 'draft line\n', 'utf8');
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-accepted',
+          path: 'raw/accepted/design.md',
+          title: 'Accepted Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:accepted',
+          imported_at: '2026-04-26T00:00:00.000Z',
+          tags: ['design']
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-inbox',
+          path: 'raw/inbox/draft.md',
+          title: 'Inbox Draft',
+          type: 'markdown',
+          status: 'inbox',
+          hash: 'sha256:inbox',
+          imported_at: '2026-04-26T00:01:00.000Z',
+          tags: []
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-missing',
+          path: 'raw/accepted/missing.md',
+          title: 'Missing Raw',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:missing',
+          imported_at: '2026-04-26T00:02:00.000Z',
+          tags: []
+        })
+      );
+
+      const server = createWebServer(root);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('Expected TCP server address');
+        const baseUrl = `http://127.0.0.1:${address.port}`;
+        const sources = await fetchJson<Array<{ id: string; links: { api: string } }>>(`${baseUrl}/api/sources`);
+        const raw = await fetchJson<{
+          id: string;
+          title: string;
+          body: string;
+          line_count: number;
+          links: { api: string };
+        }>(`${baseUrl}/api/sources/src-accepted/raw`);
+        const invalid = await fetchJson<{ error: string }>(`${baseUrl}/api/sources/src-inbox/raw`);
+        const missing = await fetchJson<{ error: string }>(`${baseUrl}/api/sources/src-missing/raw`);
+
+        expect(sources.status).toBe(200);
+        expect(sources.body.map((source) => source.id)).toEqual(['src-accepted', 'src-inbox', 'src-missing']);
+        expect(raw.status).toBe(200);
+        expect(raw.body).toMatchObject({
+          id: 'src-accepted',
+          title: 'Accepted Design',
+          body: 'first line\nsecond line\n',
+          line_count: 2,
+          links: { api: '/api/sources/src-accepted' }
+        });
+        expect(invalid.status).toBe(400);
+        expect(invalid.body.error).toBe('Invalid raw document path');
+        expect(missing.status).toBe(404);
+        expect(missing.body.error).toBe('Missing raw document: raw/accepted/missing.md');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('serves SPA shell plus wiki, task, review, and chat endpoints', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
     const calls: Array<{
@@ -60,13 +149,27 @@ describe('createWebServer', () => {
       await saveKnowledgePage(
         root,
         createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Engineering taxonomy.',
+          source_refs: [],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-13T00:00:00.000Z'
+        }),
+        '# Engineering\n\nEngineering taxonomy.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
           path: 'wiki/topics/patch-first.md',
           kind: 'topic',
           title: 'Patch First',
           summary: 'Patch-first updates keep page structure stable.',
           tags: ['patch-first'],
           source_refs: ['raw/accepted/design.md'],
-          outgoing_links: ['wiki/queries/patch-first.md'],
+          outgoing_links: ['wiki/taxonomy/engineering.md', 'wiki/queries/patch-first.md'],
           status: 'active',
           updated_at: '2026-04-13T00:00:00.000Z'
         }),
@@ -208,6 +311,7 @@ describe('createWebServer', () => {
         const discoveryApp = await fetchText(`${baseUrl}/app/discovery`);
         const readingApp = await fetchText(`${baseUrl}/app/pages/topic/patch-first`);
         const discoveryDto = await fetchJson<{ totals: { topics: number }; sections: Array<{ kind: string; items: Array<{ links: { app: string; api: string } }> }> }>(`${baseUrl}/api/discovery`);
+        const knowledgeNavigation = await fetchJson<{ roots: Array<{ title: string; kind: string; children: Array<{ title: string; kind: string; children: Array<{ kind: string; title: string; count: number }> }> }> }>(`${baseUrl}/api/knowledge/navigation`);
         const readingDto = await fetchJson<{
           page: { title: string; tags: string[]; body: string };
           navigation: {
@@ -241,6 +345,17 @@ describe('createWebServer', () => {
           app: '/app/pages/topic/patch-first',
           api: '/api/pages/topic/patch-first'
         });
+        expect(knowledgeNavigation.status).toBe(200);
+        expect(knowledgeNavigation.body.roots[0]?.title).toBe('Engineering');
+        expect(knowledgeNavigation.body.roots[0]?.children[0]).toMatchObject({
+          kind: 'topic',
+          title: 'Patch First'
+        });
+        expect(knowledgeNavigation.body.roots[0]?.children[0]?.children.map((node) => [node.kind, node.title, node.count])).toEqual([
+          ['section_group', 'Section', 1],
+          ['entity_group', 'Entity', 1],
+          ['concept_group', 'Concept', 0]
+        ]);
         expect(readingDto.status).toBe(200);
         expect(readingDto.body.page.title).toBe('Patch First');
         expect(readingDto.body.page.tags).toEqual(['patch-first']);

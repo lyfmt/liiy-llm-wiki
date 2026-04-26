@@ -1119,6 +1119,10 @@ describe('buildGraphProjection', () => {
       {
         node: expect.objectContaining({ id: evidenceSectionAssertion.id }),
         source: expect.objectContaining({ id: sourceShared.id })
+      },
+      {
+        node: expect.objectContaining({ id: evidenceGrounding.id }),
+        source: expect.objectContaining({ id: sourceShared.id })
       }
     ]);
   });

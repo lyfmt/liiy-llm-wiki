@@ -1,5 +1,6 @@
-import type { SourceDetailDto, SourceSummaryDto, SourceUpsertResponseDto } from '../dto/source.js';
+import type { RawSourceDetailDto, SourceDetailDto, SourceSummaryDto, SourceUpsertResponseDto } from '../dto/source.js';
 import type { SourceManifest } from '../../../domain/source-manifest.js';
+import { readRawDocument } from '../../../flows/ingest/read-raw-document.js';
 
 export function toSourceSummaryDto(manifest: SourceManifest): SourceSummaryDto {
   return {
@@ -23,6 +24,16 @@ export function toSourceDetailDto(manifest: SourceManifest): SourceDetailDto {
   };
 }
 
+export async function toRawSourceDetailDto(root: string, manifest: SourceManifest): Promise<RawSourceDetailDto> {
+  const body = await readRawDocument(root, manifest.path);
+
+  return {
+    ...toSourceDetailDto(manifest),
+    body,
+    line_count: countLines(body)
+  };
+}
+
 export function toSourceSummaryListDto(manifests: SourceManifest[]): SourceSummaryDto[] {
   return manifests.map((manifest) => toSourceSummaryDto(manifest));
 }
@@ -40,4 +51,15 @@ function buildSourceLinksDto(sourceId: string): SourceSummaryDto['links'] {
   return {
     api: `/api/sources/${encodedSourceId}`
   };
+}
+
+function countLines(value: string): number {
+  if (value.length === 0) {
+    return 0;
+  }
+
+  const normalized = value.replace(/\r\n/gu, '\n');
+  const lines = normalized.split('\n');
+
+  return normalized.endsWith('\n') ? lines.length - 1 : lines.length;
 }
