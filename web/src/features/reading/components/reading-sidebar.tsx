@@ -145,14 +145,25 @@ export function ReadingSidebar({ data, headings }: { data: KnowledgePageResponse
                       </h4>
                       <div className="space-y-3">
                         {data.navigation.source_refs.length > 0 ? (
-                          data.navigation.source_refs.map((sourceRef) => (
-                            <Card key={sourceRef.path} className="border-white/70 bg-white shadow-none">
-                              <CardContent className="p-4 text-sm">
-                                <div className="font-semibold text-[#1C2833]">{sourceRef.path}</div>
-                                <div className="mt-1 text-[#5D6D7E]">{sourceRef.manifest_title || sourceRef.manifest_id || 'No manifest found'}</div>
-                              </CardContent>
-                            </Card>
-                          ))
+                          data.navigation.source_refs.map((sourceRef) => {
+                            const rawHref = sourceRef.manifest_id ? `/app/raw/${encodeURIComponent(sourceRef.manifest_id)}` : null;
+                            const content = (
+                              <Card className="border-white/70 bg-white shadow-none transition-colors hover:bg-[#F9FCFF]">
+                                <CardContent className="p-4 text-sm">
+                                  <div className="font-semibold text-[#1C2833]">{sourceRef.path}</div>
+                                  <div className="mt-1 text-[#5D6D7E]">{sourceRef.manifest_title || sourceRef.manifest_id || 'No manifest found'}</div>
+                                </CardContent>
+                              </Card>
+                            );
+
+                            return rawHref ? (
+                              <a key={sourceRef.path} href={rawHref} className="block">
+                                {content}
+                              </a>
+                            ) : (
+                              <div key={sourceRef.path}>{content}</div>
+                            );
+                          })
                         ) : (
                           <p className="text-sm leading-7 text-[#5D6D7E]">暂无来源引用。</p>
                         )}

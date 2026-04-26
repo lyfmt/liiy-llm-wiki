@@ -1,4 +1,4 @@
-import { ChevronRight, Sparkles, Database, Settings, Clock, Tag } from 'lucide-react';
+import { ChevronRight, Sparkles, Database, Settings, Clock, Tag, FileText } from 'lucide-react';
 
 import { FloatingAssistantButton, ShellContainer, SkyBackground } from '@/components/layout/template-primitives';
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
@@ -8,31 +8,39 @@ import { formatDateLabel } from '@/lib/utils';
 export function DiscoveryPage() {
   const { data, error, loading } = useDiscovery();
   
-  // 获取最新的 3 篇文章
-  const latestArticles = data?.sections.flatMap(s => s.items).sort((a, b) => 
-    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-  ).slice(0, 3) || [];
+  const latestArticles = data?.sections
+    .flatMap((section) => section.items)
+    .filter((item) => item.kind !== 'source')
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 3) || [];
 
   return (
     <ShellContainer className="bg-[#FFFFFF] pb-32">
-      <nav className="fixed top-0 z-50 flex w-full items-center justify-between bg-white/70 px-6 py-4 backdrop-blur-md border-b-4 border-[#1C2833]">
+      <nav className="fixed top-0 z-50 flex w-full items-center justify-between border-b border-[#D8EAF7] bg-white/80 px-6 py-4 backdrop-blur-md">
         <div className="flex items-center gap-2 text-xl font-bold text-[#1C2833]">
-          <div className="flex h-10 w-10 items-center justify-center bg-[#66CCFF] text-[#1C2833] border-2 border-[#1C2833]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-[#EAF6FF] text-[#2479B5]">
             <Database size={22} />
           </div>
-          <span className="tracking-tighter uppercase">LLM-Wiki-Liiy</span>
+          <span className="tracking-normal">LLM-Wiki-Liiy</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <a
             href="/app/kb"
-            className="flex items-center gap-2 px-3 py-1 font-bold text-[#5D6D7E] transition-colors hover:text-[#66CCFF]"
+            className="flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm font-semibold text-[#5D7285] transition-colors hover:bg-[#EAF6FF] hover:text-[#17324A]"
           >
             <Database size={18} />
-            KNOWLEDGE
+            Knowledge
           </a>
-          <a href="/app/console" className="flex items-center gap-2 px-3 py-1 font-bold text-[#5D6D7E] transition-colors hover:text-[#66CCFF]">
+          <a
+            href="/app/raw"
+            className="flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm font-semibold text-[#5D7285] transition-colors hover:bg-[#EAF6FF] hover:text-[#17324A]"
+          >
+            <FileText size={18} />
+            Raw
+          </a>
+          <a href="/app/console" className="flex items-center gap-2 rounded-[8px] px-3 py-2 text-sm font-semibold text-[#5D7285] transition-colors hover:bg-[#EAF6FF] hover:text-[#17324A]">
             <Settings size={18} />
-            ADMIN
+            Settings
           </a>
         </div>
       </nav>

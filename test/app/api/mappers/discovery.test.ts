@@ -61,12 +61,12 @@ describe('buildDiscoveryResponseDto', () => {
       const { buildDiscoveryResponseDto } = await import('../../../../src/app/api/mappers/discovery.js');
       const response = await buildDiscoveryResponseDto(root);
 
-      expect(response.totals.sources).toBe(1);
+      expect(response.totals.sources).toBe(0);
       expect(response.totals.taxonomy).toBe(1);
       expect(response.sections.find((section) => section.kind === 'taxonomy')?.items[0]?.title).toBe('Engineering');
-      expect(response.sections.find((section) => section.kind === 'source')?.items[0]?.summary).toBe('Short source summary.');
+      expect(response.sections.find((section) => section.kind === 'source')).toBeUndefined();
       expect(vi.mocked(storage.loadKnowledgePage)).not.toHaveBeenCalled();
-      expect(vi.mocked(storage.loadKnowledgePageMetadata)).toHaveBeenCalledWith(root, 'source', 'source-a');
+      expect(vi.mocked(storage.loadKnowledgePageMetadata)).not.toHaveBeenCalledWith(root, 'source', 'source-a');
       expect(vi.mocked(storage.loadKnowledgePageMetadata)).toHaveBeenCalledWith(root, 'taxonomy', 'engineering');
     } finally {
       await rm(root, { recursive: true, force: true });
