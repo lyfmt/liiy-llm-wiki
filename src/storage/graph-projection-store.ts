@@ -14,6 +14,7 @@ export interface GraphProjectionSection {
 
 export interface GraphProjection {
   root: GraphNode;
+  edges?: GraphEdge[];
   taxonomy: GraphNode[];
   sections: GraphProjectionSection[];
   entities: GraphNode[];
@@ -71,12 +72,16 @@ export function buildGraphProjection(input: BuildGraphProjectionInput): GraphPro
 
   return {
     root,
+    edges: rootedEdges,
     taxonomy: rootedNodes.filter((node): node is GraphNode => node.kind === 'taxonomy').sort(compareNodes),
     sections,
     entities: rootedNodes.filter((node): node is GraphNode => node.kind === 'entity').sort(compareNodes),
     concepts: rootedNodes.filter((node): node is GraphNode => node.kind === 'concept').sort(compareNodes),
     assertions,
-    evidence: dedupeEvidence(assertions.flatMap((assertion) => assertion.evidence))
+    evidence: dedupeEvidence([
+      ...sections.flatMap((section) => collectSectionEvidence(section.node.id, rootedEdges, nodesById)),
+      ...assertions.flatMap((assertion) => assertion.evidence)
+    ])
   };
 }
 

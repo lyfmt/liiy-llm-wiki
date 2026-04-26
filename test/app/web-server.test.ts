@@ -60,13 +60,27 @@ describe('createWebServer', () => {
       await saveKnowledgePage(
         root,
         createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Engineering taxonomy.',
+          source_refs: [],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-13T00:00:00.000Z'
+        }),
+        '# Engineering\n\nEngineering taxonomy.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
           path: 'wiki/topics/patch-first.md',
           kind: 'topic',
           title: 'Patch First',
           summary: 'Patch-first updates keep page structure stable.',
           tags: ['patch-first'],
           source_refs: ['raw/accepted/design.md'],
-          outgoing_links: ['wiki/queries/patch-first.md'],
+          outgoing_links: ['wiki/taxonomy/engineering.md', 'wiki/queries/patch-first.md'],
           status: 'active',
           updated_at: '2026-04-13T00:00:00.000Z'
         }),
@@ -208,6 +222,7 @@ describe('createWebServer', () => {
         const discoveryApp = await fetchText(`${baseUrl}/app/discovery`);
         const readingApp = await fetchText(`${baseUrl}/app/pages/topic/patch-first`);
         const discoveryDto = await fetchJson<{ totals: { topics: number }; sections: Array<{ kind: string; items: Array<{ links: { app: string; api: string } }> }> }>(`${baseUrl}/api/discovery`);
+        const knowledgeNavigation = await fetchJson<{ roots: Array<{ title: string; kind: string; children: Array<{ title: string; kind: string; children: Array<{ kind: string; title: string; count: number }> }> }> }>(`${baseUrl}/api/knowledge/navigation`);
         const readingDto = await fetchJson<{
           page: { title: string; tags: string[]; body: string };
           navigation: {
@@ -241,6 +256,17 @@ describe('createWebServer', () => {
           app: '/app/pages/topic/patch-first',
           api: '/api/pages/topic/patch-first'
         });
+        expect(knowledgeNavigation.status).toBe(200);
+        expect(knowledgeNavigation.body.roots[0]?.title).toBe('Engineering');
+        expect(knowledgeNavigation.body.roots[0]?.children[0]).toMatchObject({
+          kind: 'topic',
+          title: 'Patch First'
+        });
+        expect(knowledgeNavigation.body.roots[0]?.children[0]?.children.map((node) => [node.kind, node.title, node.count])).toEqual([
+          ['section_group', 'Section', 1],
+          ['entity_group', 'Entity', 1],
+          ['concept_group', 'Concept', 0]
+        ]);
         expect(readingDto.status).toBe(200);
         expect(readingDto.body.page.title).toBe('Patch First');
         expect(readingDto.body.page.tags).toEqual(['patch-first']);
