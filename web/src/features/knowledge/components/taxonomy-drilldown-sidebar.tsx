@@ -1,4 +1,4 @@
-import { BookOpen, ChevronLeft, ChevronRight, FolderTree, Home, Layers3 } from 'lucide-react';
+import { BookOpen, ChevronLeft, ChevronRight, FolderTree, Home, Layers3, Settings } from 'lucide-react';
 
 import type { KnowledgeNavigationNode } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -34,21 +34,21 @@ export function TaxonomyDrilldownSidebar({
   const parentPath = path.slice(0, -1);
 
   return (
-    <aside className="h-full w-[292px] shrink-0 overflow-hidden border-r border-[#D8EAF7] bg-[#EAF6FF]">
+    <aside className="h-full w-[292px] shrink-0 overflow-hidden border-r border-slate-200 bg-white">
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 px-5 pb-4 pt-5">
           <a
             href="/app"
-            className="inline-flex items-center gap-2 rounded-[8px] px-2 py-1 text-sm font-semibold text-[#5D7285] transition hover:bg-white/70 hover:text-[#17324A]"
+            className="inline-flex items-center gap-2 rounded-[8px] px-2 py-1 text-sm font-semibold text-brand transition hover:bg-blue-50 hover:text-blue-700"
           >
             <Home size={16} />
-            Home
+            Return Home
           </a>
 
           <div className="mt-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5D7285]">Knowledge</p>
-            <h1 className="mt-2 text-2xl font-semibold text-[#17324A]">知识库</h1>
-            <p className="mt-2 text-sm leading-6 text-[#5D7285]">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Knowledge Base</p>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-900">知识库</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
               {current ? current.title : '沿 taxonomy 逐层进入'}
             </p>
           </div>
@@ -60,8 +60,8 @@ export function TaxonomyDrilldownSidebar({
             className={cn(
               'mt-5 inline-flex h-9 items-center gap-2 rounded-[8px] px-3 text-sm font-semibold transition',
               path.length === 0
-                ? 'cursor-not-allowed bg-white/45 text-[#9FB2C1]'
-                : 'bg-white text-[#315C7A] shadow-sm hover:bg-[#FDFEFF] hover:text-[#17324A]'
+                ? 'cursor-not-allowed bg-slate-50 text-slate-300'
+                : 'bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-brand'
             )}
           >
             <ChevronLeft size={16} />
@@ -92,29 +92,36 @@ export function TaxonomyDrilldownSidebar({
 
                     onPathChange([...path, node]);
                   }}
-                  className="group flex w-full items-center gap-3 rounded-[8px] bg-white/72 px-3 py-3 text-left shadow-sm ring-1 ring-[#D8EAF7] transition hover:bg-white hover:ring-[#9ED8FF]"
+                  className="group flex w-full items-center gap-3 rounded-[12px] border border-slate-100 bg-white px-3 py-3 text-left transition hover:border-blue-200 hover:bg-blue-50/60 hover:shadow-sm"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-[#DFF1FF] text-[#2479B5]">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-blue-50 text-brand">
                     <Icon size={18} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-[#17324A]">{node.title}</span>
-                    <span className="mt-0.5 block text-xs text-[#6D8292]">{kindLabels[node.kind]}</span>
+                    <span className="block truncate text-sm font-semibold text-slate-800">{node.title}</span>
+                    <span className="mt-0.5 block text-xs text-slate-400">{kindLabels[node.kind]}</span>
                   </span>
-                  <span className="shrink-0 rounded-full bg-[#F5FBFF] px-2 py-1 text-xs font-semibold text-[#3A6D8E]">
+                  <span className="shrink-0 rounded-full bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500">
                     {node.count}
                   </span>
-                  <ChevronRight size={16} className="shrink-0 text-[#8BA6B8] transition group-hover:text-[#2479B5]" />
+                  <ChevronRight size={16} className="shrink-0 text-slate-300 transition group-hover:text-brand" />
                 </button>
               );
             })}
           </div>
 
           {currentLevel.length === 0 ? (
-            <div className="rounded-[8px] bg-white/70 px-4 py-5 text-sm leading-6 text-[#6D8292]">
+            <div className="rounded-[12px] bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-500">
               当前层级暂无条目。
             </div>
           ) : null}
+        </div>
+
+        <div className="shrink-0 border-t border-slate-100 px-4 py-4">
+          <a href="/app/console" className="flex items-center gap-3 rounded-[8px] px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600">
+            <Settings size={16} />
+            Settings
+          </a>
         </div>
       </div>
     </aside>

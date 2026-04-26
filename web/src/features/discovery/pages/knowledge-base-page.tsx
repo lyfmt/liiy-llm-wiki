@@ -13,7 +13,7 @@ export function KnowledgeBasePage() {
   const roots = data?.roots ?? [];
 
   return (
-    <ShellContainer className="h-screen min-h-0 overflow-hidden bg-[#F7FCFF]">
+    <ShellContainer className="h-screen min-h-0 overflow-hidden bg-white">
       <div className="flex h-screen min-h-0">
         <TaxonomyDrilldownSidebar roots={roots} path={path} onPathChange={setPath} />
 

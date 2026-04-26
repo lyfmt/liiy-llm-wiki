@@ -51,20 +51,20 @@ export function KnowledgeLevelView({
   const related = current?.related ?? [];
 
   return (
-    <main className="min-h-0 flex-1 overflow-hidden bg-[#F7FCFF]">
-      <div className="h-full overflow-y-auto px-8 py-7">
+    <main className="min-h-0 flex-1 overflow-hidden bg-white">
+      <div className="h-full overflow-y-auto px-8 py-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
-          <nav className="flex flex-wrap items-center gap-2 text-sm text-[#6D8292]" aria-label="Breadcrumb">
-            <button type="button" onClick={() => onPathChange([])} className="font-semibold text-[#2479B5] hover:text-[#17324A]">
+          <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-400" aria-label="Breadcrumb">
+            <button type="button" onClick={() => onPathChange([])} className="font-semibold text-brand hover:text-blue-700">
               知识库
             </button>
             {path.map((node, index) => (
               <span key={node.id} className="flex items-center gap-2">
-                <span className="text-[#A4B8C8]">/</span>
+                <span className="text-slate-300">/</span>
                 <button
                   type="button"
                   onClick={() => onPathChange(path.slice(0, index + 1))}
-                  className="max-w-[220px] truncate font-semibold text-[#315C7A] hover:text-[#17324A]"
+                  className="max-w-[220px] truncate font-semibold text-slate-500 hover:text-slate-900"
                 >
                   {node.title}
                 </button>
@@ -72,24 +72,24 @@ export function KnowledgeLevelView({
             ))}
           </nav>
 
-          <section className="rounded-[8px] bg-white px-7 py-6 shadow-sm ring-1 ring-[#D8EAF7]">
+          <section className="rounded-[20px] border border-slate-100 bg-white px-7 py-6 shadow-xl shadow-slate-200/40">
             <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#3BAAEF]">
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand">
                   <Network size={15} />
                   {current ? kindLabels[current.kind] : 'Taxonomy Root'}
                 </p>
-                <h2 className="mt-3 text-4xl font-semibold tracking-normal text-[#17324A]">{intro.title}</h2>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-[#5D7285]">{intro.summary}</p>
+                <h2 className="mt-3 text-4xl font-semibold tracking-normal text-slate-900">{intro.title}</h2>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-500">{intro.summary}</p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-[8px] bg-[#EAF6FF] px-4 py-3">
-                  <p className="text-xs font-semibold text-[#6D8292]">当前子项</p>
-                  <p className="mt-1 text-2xl font-semibold text-[#17324A]">{children.length}</p>
+                <div className="rounded-[14px] bg-blue-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-500">当前子项</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{children.length}</p>
                 </div>
-                <div className="rounded-[8px] bg-[#F0FAF6] px-4 py-3">
-                  <p className="text-xs font-semibold text-[#6D8292]">Graph 链接</p>
-                  <p className="mt-1 text-2xl font-semibold text-[#17324A]">{related.length}</p>
+                <div className="rounded-[14px] bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-500">Graph 链接</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{related.length}</p>
                 </div>
               </div>
             </div>
@@ -97,7 +97,7 @@ export function KnowledgeLevelView({
 
           {children.length > 0 ? (
             <section>
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#315C7A]">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <Rows3 size={17} />
                 当前层级
               </div>
@@ -107,18 +107,18 @@ export function KnowledgeLevelView({
                     key={node.id}
                     type="button"
                     onClick={() => onPathChange([...path, node])}
-                    className="group rounded-[8px] bg-white p-5 text-left shadow-sm ring-1 ring-[#D8EAF7] transition hover:-translate-y-0.5 hover:ring-[#9ED8FF]"
+                    className="group rounded-[16px] border border-slate-100 bg-white p-5 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-xl hover:shadow-blue-100/50"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <span className="rounded-full bg-[#EAF6FF] px-2.5 py-1 text-xs font-semibold text-[#2479B5]">
+                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-brand">
                         {kindLabels[node.kind]}
                       </span>
-                      <span className="shrink-0 rounded-full bg-[#F5FBFF] px-2.5 py-1 text-xs font-semibold text-[#6D8292]">
+                      <span className="shrink-0 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">
                         {node.count}
                       </span>
                     </div>
-                    <h3 className="mt-4 text-lg font-semibold text-[#17324A] group-hover:text-[#2479B5]">{node.title}</h3>
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#5D7285]">
+                    <h3 className="mt-4 text-lg font-semibold text-slate-900 group-hover:text-brand">{node.title}</h3>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-500">
                       {node.summary || '继续进入此层级查看结构化条目。'}
                     </p>
                   </button>
@@ -126,13 +126,13 @@ export function KnowledgeLevelView({
               </div>
             </section>
           ) : (
-            <section className="rounded-[8px] bg-white px-6 py-8 text-center shadow-sm ring-1 ring-[#D8EAF7]">
-              <BookOpen className="mx-auto text-[#9ED8FF]" size={34} />
-              <h3 className="mt-3 text-lg font-semibold text-[#17324A]">当前节点没有下级条目</h3>
+            <section className="rounded-[16px] border border-slate-100 bg-white px-6 py-8 text-center shadow-sm">
+              <BookOpen className="mx-auto text-blue-200" size={34} />
+              <h3 className="mt-3 text-lg font-semibold text-slate-900">当前节点没有下级条目</h3>
               {current?.href ? (
                 <a
                   href={current.href}
-                  className="mt-4 inline-flex items-center gap-2 rounded-[8px] bg-[#3BAAEF] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2479B5]"
+                  className="mt-4 inline-flex items-center gap-2 rounded-[10px] bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
                 >
                   打开阅读页
                   <ArrowUpRight size={16} />
@@ -143,7 +143,7 @@ export function KnowledgeLevelView({
 
           {related.length > 0 ? (
             <section>
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#315C7A]">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <GitBranch size={17} />
                 相关 Graph 链接
               </div>
@@ -162,18 +162,18 @@ export function KnowledgeLevelView({
 
 function RelatedLinkCard({ link }: { link: KnowledgeGraphRelatedLink }) {
   const content = (
-    <span className="flex h-full items-start gap-4 rounded-[8px] bg-white p-4 shadow-sm ring-1 ring-[#D8EAF7] transition hover:ring-[#9ED8FF]">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-[#EAF6FF] text-[#2479B5]">
+    <span className="flex h-full items-start gap-4 rounded-[16px] border border-slate-100 bg-white p-4 transition hover:border-blue-200 hover:bg-blue-50/40">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-blue-50 text-brand">
         {link.target.kind === 'evidence' ? <FileText size={18} /> : <Link2 size={18} />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#3BAAEF]">
+        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-brand">
           {relatedLabels[link.type]} · {link.target.kind}
         </span>
-        <span className="mt-1 block truncate text-base font-semibold text-[#17324A]">{link.target.title}</span>
-        <span className="mt-1 line-clamp-2 text-sm leading-6 text-[#5D7285]">{link.target.summary || '暂无摘要'}</span>
+        <span className="mt-1 block truncate text-base font-semibold text-slate-900">{link.target.title}</span>
+        <span className="mt-1 line-clamp-2 text-sm leading-6 text-slate-500">{link.target.summary || '暂无摘要'}</span>
       </span>
-      {link.target.href ? <ArrowUpRight size={17} className="mt-1 shrink-0 text-[#8BA6B8]" /> : null}
+      {link.target.href ? <ArrowUpRight size={17} className="mt-1 shrink-0 text-slate-300" /> : null}
     </span>
   );
 
