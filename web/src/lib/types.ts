@@ -116,6 +116,46 @@ export interface KnowledgePageResponse {
   };
 }
 
+export type KnowledgeNavigationNodeKind =
+  | 'taxonomy'
+  | 'topic'
+  | 'section_group'
+  | 'entity_group'
+  | 'concept_group'
+  | 'section'
+  | 'entity'
+  | 'concept';
+
+export type KnowledgeGraphRelatedTargetKind = 'topic' | 'section' | 'entity' | 'concept' | 'evidence';
+
+export interface KnowledgeGraphRelatedLink {
+  edge_id: string;
+  type: 'about' | 'grounded_by' | 'mentions' | 'part_of';
+  direction: 'outgoing' | 'incoming';
+  target: {
+    id: string;
+    kind: KnowledgeGraphRelatedTargetKind;
+    title: string;
+    summary: string;
+    href: string | null;
+  };
+}
+
+export interface KnowledgeNavigationNode {
+  id: string;
+  kind: KnowledgeNavigationNodeKind;
+  title: string;
+  summary: string;
+  count: number;
+  href: string | null;
+  related: KnowledgeGraphRelatedLink[];
+  children: KnowledgeNavigationNode[];
+}
+
+export interface KnowledgeNavigationResponse {
+  roots: KnowledgeNavigationNode[];
+}
+
 export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 'rejected';
 export type TaskStatus = 'pending' | 'in_progress' | 'needs_review' | 'done';
 export type ChatModelApi = 'anthropic-messages' | 'openai-completions' | 'openai-responses';

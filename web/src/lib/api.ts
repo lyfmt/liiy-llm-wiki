@@ -10,6 +10,7 @@ import type {
   ChatSettingsUpdateResponse,
   ChatModelsResponse,
   DiscoveryResponse,
+  KnowledgeNavigationResponse,
   KnowledgePageResponse,
   RunDetailResponse,
   RunSummary,
@@ -41,6 +42,10 @@ export function getDiscovery(): Promise<DiscoveryResponse> {
 
 export function getKnowledgePage(kind: string, slug: string): Promise<KnowledgePageResponse> {
   return fetchJson<KnowledgePageResponse>(`/api/pages/${kind}/${encodeURIComponent(slug)}`);
+}
+
+export function getKnowledgeNavigation(): Promise<KnowledgeNavigationResponse> {
+  return fetchJson<KnowledgeNavigationResponse>('/api/knowledge/navigation');
 }
 
 export function getChatOperations(): Promise<ChatOperationsSummary> {
