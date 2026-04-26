@@ -42,6 +42,13 @@ export async function buildUserContentBlocksWithAttachments(
       text: `Attachment handle: ${attachment.attachment_id}`
     });
 
+    if (attachment.knowledge_insert_pipeline_run_id) {
+      content.push({
+        type: 'text',
+        text: `Knowledge insert pipeline run: ${attachment.knowledge_insert_pipeline_run_id}`
+      });
+    }
+
     if (trimmedMarkdown.length > 0) {
       content.push({
         type: 'text',

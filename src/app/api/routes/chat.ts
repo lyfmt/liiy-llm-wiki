@@ -37,18 +37,25 @@ import type { ApiRouteContext } from '../route-context.js';
 import { loadRequestRunStateIfExists, readJsonBody, writeJson } from '../route-helpers.js';
 import { createChatSettings } from '../../../domain/chat-settings.js';
 import type { ChatAttachmentRef } from '../../../domain/chat-attachment.js';
-import { createRequestRun } from '../../../domain/request-run.js';
+import { createRequestRun, type RequestRunStatus } from '../../../domain/request-run.js';
+import type { ChatSession } from '../../../domain/chat-session.js';
+import { createKnowledgeInsertPipelineState } from '../../../domain/knowledge-insert-pipeline.js';
 import { syncReviewTask } from '../../../flows/review/sync-review-task.js';
 import { buildUserMessageWithAttachments } from '../../../runtime/chat-attachment-content.js';
 import { buildIntentPlan, classifyIntent } from '../../../runtime/intent-classifier.js';
 import { createRuntimeRunState } from '../../../runtime/request-run-state.js';
 import type { RunRuntimeAgentResult } from '../../../runtime/agent-session.js';
 import { resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
-import { resolveChatAttachments, saveBufferedChatAttachment, toChatAttachmentRef } from '../../../storage/chat-attachment-store.js';
+import {
+  markChatAttachmentKnowledgeInsertPipeline,
+  resolveChatAttachments,
+  saveBufferedChatAttachment,
+  toChatAttachmentRef
+} from '../../../storage/chat-attachment-store.js';
 import { saveRequestRunState } from '../../../storage/request-run-state-store.js';
 import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
-import { readKnowledgeInsertPipelineArtifact } from '../../../flows/knowledge-insert/pipeline-artifacts.js';
+import { readKnowledgeInsertPipelineArtifact, writeKnowledgeInsertPipelineArtifact } from '../../../flows/knowledge-insert/pipeline-artifacts.js';
 
 export async function handleChatRoutes(context: ApiRouteContext): Promise<boolean> {
   const { root, request, response, method, pathname, url, dependencies } = context;
@@ -125,7 +132,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
     const chatSession = payload.sessionId
       ? await ensureChatSession(root, payload.fileName, payload.sessionId)
       : await createChatSessionForRequest(root, payload.fileName);
-    const attachment = await saveBufferedChatAttachment(root, {
+    let attachment = await saveBufferedChatAttachment(root, {
       sessionId: chatSession.session_id,
       fileName: payload.fileName,
       mimeType: payload.mimeType,
@@ -135,6 +142,7 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       ? `pipeline-${randomUUID()}`
       : null;
     if (pipelineRunId && dependencies.runKnowledgeInsertPipelineFromAttachment) {
+      attachment = await markChatAttachmentKnowledgeInsertPipeline(root, attachment.attachment_id, pipelineRunId);
       void dependencies.runKnowledgeInsertPipelineFromAttachment({
         root,
         attachmentId: attachment.attachment_id,
@@ -142,7 +150,9 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
         runId: pipelineRunId,
         maxPartExtractionConcurrency: payload.maxPartExtractionConcurrency,
         resetKnowledgeGraphBeforeRun: payload.resetKnowledgeGraphBeforeRun
-      }).catch(() => undefined);
+      }).catch((error: unknown) =>
+        recordFailedAutoKnowledgeInsertPipelineLaunch(root, pipelineRunId, attachment.attachment_id, error)
+      );
     }
 
     writeJson(response, 201, {
@@ -419,6 +429,32 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
   return false;
 }
 
+async function recordFailedAutoKnowledgeInsertPipelineLaunch(
+  root: string,
+  runId: string,
+  attachmentId: string,
+  error: unknown
+): Promise<void> {
+  try {
+    await readKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json');
+    return;
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw readError;
+    }
+  }
+
+  await writeKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
+    runId,
+    sourceId: `src-attachment-${attachmentId}`,
+    storageMode: 'pg-primary',
+    currentStage: 'source.uploaded',
+    status: 'failed',
+    artifacts: {},
+    errors: [error instanceof Error ? error.message : String(error)]
+  }));
+}
+
 async function persistResolvedChatRunIfStillRunning(
   root: string,
   runId: string,
@@ -430,6 +466,13 @@ async function persistResolvedChatRunIfStillRunning(
   const existingRunState = await loadRequestRunStateIfExists(root, runId);
 
   if (existingRunState !== null && existingRunState.request_run.status !== 'running') {
+    await recordRunInChatSession(root, {
+      session: await ensureChatSession(root, userRequest, sessionId),
+      runId,
+      status: toChatSessionStatus(existingRunState.request_run.status),
+      summary: existingRunState.request_run.result_summary
+    });
+    await syncReviewTask(root, existingRunState);
     return;
   }
 
@@ -448,10 +491,26 @@ async function persistResolvedChatRunIfStillRunning(
   await recordRunInChatSession(root, {
     session: await ensureChatSession(root, userRequest, sessionId),
     runId,
-    status: persistedState.request_run.status === 'needs_review' ? 'needs_review' : persistedState.request_run.status === 'failed' ? 'failed' : 'done',
+    status: toChatSessionStatus(persistedState.request_run.status),
     summary: persistedState.request_run.result_summary
   });
   await syncReviewTask(root, persistedState);
+}
+
+function toChatSessionStatus(status: RequestRunStatus): ChatSession['status'] {
+  if (status === 'needs_review') {
+    return 'needs_review';
+  }
+
+  if (status === 'failed') {
+    return 'failed';
+  }
+
+  if (status === 'running') {
+    return 'running';
+  }
+
+  return 'done';
 }
 
 async function persistFailedChatRunLaunchIfStillRunning(

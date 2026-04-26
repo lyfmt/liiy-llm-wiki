@@ -258,19 +258,27 @@ async function extractPartsWithProgress(
 
       runningPartIds.add(part.partId);
       await persistProgress();
-      const extraction = await runPartExtractionStage(input, part);
-      if (extraction.partId !== part.partId) {
-        throw new Error(`Part extraction returned mismatched partId: ${extraction.partId}`);
+      try {
+        const extraction = await runPartExtractionStage(input, part);
+        if (extraction.partId !== part.partId) {
+          throw new Error(`Part extraction returned mismatched partId: ${extraction.partId}`);
+        }
+        extractions[index] = extraction;
+        artifacts[`partExtraction:${part.partId}`] = (await writeKnowledgeInsertPipelineArtifact(root, input.runId, artifactPath, extraction)).projectPath;
+        completedPartIds.add(part.partId);
+      } finally {
+        runningPartIds.delete(part.partId);
+        await persistProgress();
       }
-      extractions[index] = extraction;
-      artifacts[`partExtraction:${part.partId}`] = (await writeKnowledgeInsertPipelineArtifact(root, input.runId, artifactPath, extraction)).projectPath;
-      runningPartIds.delete(part.partId);
-      completedPartIds.add(part.partId);
-      await persistProgress();
     }
   };
 
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  const workerResults = await Promise.allSettled(Array.from({ length: workerCount }, () => worker()));
+  const failedWorker = workerResults.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failedWorker) {
+    throw failedWorker.reason;
+  }
+
   return extractions;
 }
 
@@ -323,7 +331,8 @@ async function runTopicPlanStage(input: RunKnowledgeInsertPipelineInput, sourceR
       sourceId: input.sourceId,
       topics: [{ topicId: 'topic-a', slug: 'topic-a', title: 'Topic A', scope: 'Scope', rationale: 'Because' }]
     },
-    generate: requireGenerator(input, 'topics.planned')
+    generate: requireGenerator(input, 'topics.planned'),
+    validate: parseTopicPlanArtifact
   });
   return parseTopicPlanArtifact(generated);
 }
@@ -342,7 +351,8 @@ async function runPartitionPlanStage(
       sourceId: input.sourceId,
       parts: [{ partId: 'part-001', title: 'Intro', startLine: 1, endLine: 20, topicIds: ['topic-a'], rationale: 'Opening section' }]
     },
-    generate: requireGenerator(input, 'parts.planned')
+    generate: requireGenerator(input, 'parts.planned'),
+    validate: parsePartitionPlanArtifact
   });
   return parsePartitionPlanArtifact(generated);
 }
@@ -369,7 +379,8 @@ async function runPartExtractionStage(input: RunKnowledgeInsertPipelineInput, pa
       concepts: [{ conceptId: 'concept-example', name: 'Example Concept', summary: 'An abstract concept from the source.', aliases: [] }],
       evidenceAnchors: [{ anchorId: 'evidence-part-001-001', locator: 'raw/accepted/source.md#L1-L20', quote: 'short quote', startLine: 1, endLine: 20 }]
     },
-    generate: requireGenerator(input, 'parts.extracted')
+    generate: requireGenerator(input, 'parts.extracted'),
+    validate: parsePartExtractionArtifact
   });
   return parsePartExtractionArtifact(generated);
 }

@@ -17,6 +17,7 @@ export interface ChatAttachmentRecord extends ChatAttachmentRef {
   markdown_rel_path: string;
   markdown_char_count: number;
   expires_at: string;
+  knowledge_insert_pipeline_run_id?: string;
 }
 
 export interface CreateChatAttachmentRecordInput extends ChatAttachmentRef {
@@ -28,6 +29,7 @@ export interface CreateChatAttachmentRecordInput extends ChatAttachmentRef {
   markdown_rel_path: string;
   markdown_char_count: number;
   expires_at?: string;
+  knowledge_insert_pipeline_run_id?: string;
 }
 
 export function createChatAttachmentRecord(input: CreateChatAttachmentRecordInput): ChatAttachmentRecord {
@@ -45,7 +47,8 @@ export function createChatAttachmentRecord(input: CreateChatAttachmentRecordInpu
     original_rel_path: input.original_rel_path,
     markdown_rel_path: input.markdown_rel_path,
     markdown_char_count: input.markdown_char_count,
-    expires_at: input.expires_at ?? new Date(Date.parse(createdAt) + 1000 * 60 * 60 * 24).toISOString()
+    expires_at: input.expires_at ?? new Date(Date.parse(createdAt) + 1000 * 60 * 60 * 24).toISOString(),
+    ...(input.knowledge_insert_pipeline_run_id ? { knowledge_insert_pipeline_run_id: input.knowledge_insert_pipeline_run_id } : {})
   };
 }
 

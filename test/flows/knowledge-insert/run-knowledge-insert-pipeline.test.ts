@@ -219,6 +219,92 @@ describe('runKnowledgeInsertPipeline', () => {
     }
   });
 
+  it('clears running part progress when extraction fails', async () => {
+    const root = await createSourceRoot({
+      markdown: '# Heading\nLine one\nLine two\nLine three\n'
+    });
+
+    try {
+      await expect(runKnowledgeInsertPipeline(root, {
+        runId: 'run-failed-part-progress',
+        sourceId: 'src-001',
+        stageGenerators: {
+          'topics.planned': async () => JSON.stringify(topicPlan()),
+          'parts.planned': async () => JSON.stringify({
+            schemaVersion: 'knowledge-insert.partition-plan.v3',
+            sourceId: 'src-001',
+            parts: [
+              { partId: 'part-001', title: 'One', startLine: 1, endLine: 2, topicIds: ['topic-a'], rationale: 'Generate' },
+              { partId: 'part-002', title: 'Two', startLine: 3, endLine: 4, topicIds: ['topic-a'], rationale: 'Fail' }
+            ]
+          }),
+          'parts.extracted': async (prompt) => {
+            const parsed = JSON.parse(prompt.slice(prompt.indexOf('Input JSON:') + 'Input JSON:'.length));
+            const partId = parsed.partId as string;
+            return partId === 'part-001'
+              ? JSON.stringify(emptyExtraction(partId))
+              : 'not json';
+          }
+        },
+        maxPartExtractionConcurrency: 1
+      })).rejects.toThrow('Pipeline stage did not return valid JSON');
+
+      const state = JSON.parse(await readFile(
+        path.join(root, 'state', 'artifacts', 'knowledge-insert-pipeline', 'run-failed-part-progress', 'pipeline-state.json'),
+        'utf8'
+      ));
+
+      expect(state.partProgress).toEqual({
+        total: 2,
+        completed: 1,
+        running: [],
+        pending: 1
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('waits for in-flight part extraction attempts before rejecting a concurrent failure', async () => {
+    const root = await createSourceRoot({
+      markdown: '# Heading\nLine one\nLine two\nLine three\n'
+    });
+    let slowPartCompleted = false;
+
+    try {
+      await expect(runKnowledgeInsertPipeline(root, {
+        runId: 'run-concurrent-failed-part-progress',
+        sourceId: 'src-001',
+        stageGenerators: {
+          'topics.planned': async () => JSON.stringify(topicPlan()),
+          'parts.planned': async () => JSON.stringify({
+            schemaVersion: 'knowledge-insert.partition-plan.v3',
+            sourceId: 'src-001',
+            parts: [
+              { partId: 'part-001', title: 'One', startLine: 1, endLine: 2, topicIds: ['topic-a'], rationale: 'Slow success' },
+              { partId: 'part-002', title: 'Two', startLine: 3, endLine: 4, topicIds: ['topic-a'], rationale: 'Fail' }
+            ]
+          }),
+          'parts.extracted': async (prompt) => {
+            const parsed = JSON.parse(prompt.slice(prompt.indexOf('Input JSON:') + 'Input JSON:'.length));
+            const partId = parsed.partId as string;
+            if (partId === 'part-001') {
+              await new Promise((resolve) => setTimeout(resolve, 30));
+              slowPartCompleted = true;
+              return JSON.stringify(emptyExtraction(partId));
+            }
+            return 'not json';
+          }
+        },
+        maxPartExtractionConcurrency: 2
+      })).rejects.toThrow('Pipeline stage did not return valid JSON');
+
+      expect(slowPartCompleted).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('merges repeated entity and concept IDs emitted by independent part extractions', async () => {
     const root = await createSourceRoot();
 

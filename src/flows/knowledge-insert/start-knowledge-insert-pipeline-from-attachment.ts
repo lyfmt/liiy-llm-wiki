@@ -10,6 +10,7 @@ import {
   loadChatAttachment,
   loadChatAttachmentMarkdown,
   loadChatAttachmentOriginal,
+  markChatAttachmentKnowledgeInsertPipeline,
   markChatAttachmentPersisted
 } from '../../storage/chat-attachment-store.js';
 import { buildGraphSchemaSql } from '../../storage/graph-schema.js';
@@ -17,7 +18,7 @@ import { getSharedGraphDatabasePool, resolveGraphDatabaseUrl } from '../../stora
 import { loadSourceManifest, saveSourceManifest } from '../../storage/source-manifest-store.js';
 import { loadChatSettings } from '../../storage/chat-settings-store.js';
 import { loadProjectEnv } from '../../storage/project-env-store.js';
-import { createKnowledgeInsertPipelineState } from '../../domain/knowledge-insert-pipeline.js';
+import { createKnowledgeInsertPipelineState, type KnowledgeInsertPipelineState } from '../../domain/knowledge-insert-pipeline.js';
 
 import { runKnowledgeInsertPipeline, type PipelineStageGenerator } from './run-knowledge-insert-pipeline.js';
 import { readKnowledgeInsertPipelineArtifact, writeKnowledgeInsertPipelineArtifact } from './pipeline-artifacts.js';
@@ -47,7 +48,13 @@ export async function startKnowledgeInsertPipelineFromAttachment(
   let sourceId: string | undefined;
 
   try {
+    const existingRun = await resolveExistingAttachmentPipeline(input);
+    if (existingRun && existingRun.runId !== runId) {
+      return existingRun;
+    }
+
     sourceId = await promoteAttachmentToAcceptedSource(input.root, input.attachmentId, input.sessionId);
+    await markChatAttachmentKnowledgeInsertPipeline(input.root, input.attachmentId, runId);
     const settings = await loadChatSettings(input.root);
     const resolvedRuntimeModel = resolveRuntimeModel(settings, { root: input.root });
     const graphClient = await createReadyGraphClient(input.root);
@@ -78,30 +85,69 @@ export async function startKnowledgeInsertPipelineFromAttachment(
       artifactsRoot: `state/artifacts/knowledge-insert-pipeline/${runId}`
     };
   } catch (error) {
-    if (sourceId) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      try {
-        const existingState = await readKnowledgeInsertPipelineArtifact<ReturnType<typeof createKnowledgeInsertPipelineState>>(
-          input.root,
-          runId,
-          'pipeline-state.json'
-        );
-        await writeKnowledgeInsertPipelineArtifact(input.root, runId, 'pipeline-state.json', {
-          ...existingState,
-          status: 'failed',
-          errors: [...existingState.errors, errorMessage]
-        });
-      } catch {
-        await writeKnowledgeInsertPipelineArtifact(input.root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
-          runId,
-          sourceId,
-          storageMode: 'pg-primary',
-          currentStage: 'source.uploaded',
-          status: 'failed',
-          artifacts: {},
-          errors: [errorMessage]
-        }));
-      }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const fallbackSourceId = sourceId ?? `src-attachment-${input.attachmentId}`;
+    try {
+      const existingState = await readKnowledgeInsertPipelineArtifact<ReturnType<typeof createKnowledgeInsertPipelineState>>(
+        input.root,
+        runId,
+        'pipeline-state.json'
+      );
+      await writeKnowledgeInsertPipelineArtifact(input.root, runId, 'pipeline-state.json', {
+        ...existingState,
+        status: 'failed',
+        errors: [...existingState.errors, errorMessage]
+      });
+    } catch {
+      await writeKnowledgeInsertPipelineArtifact(input.root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
+        runId,
+        sourceId: fallbackSourceId,
+        storageMode: 'pg-primary',
+        currentStage: 'source.uploaded',
+        status: 'failed',
+        artifacts: {},
+        errors: [errorMessage]
+      }));
+    }
+    throw error;
+  }
+}
+
+async function resolveExistingAttachmentPipeline(
+  input: StartKnowledgeInsertPipelineFromAttachmentInput
+): Promise<StartKnowledgeInsertPipelineFromAttachmentResult | null> {
+  const attachment = await loadChatAttachment(input.root, input.attachmentId);
+
+  if (input.sessionId && attachment.session_id !== input.sessionId) {
+    throw new Error(`Attachment does not belong to session: ${input.attachmentId}`);
+  }
+
+  const existingRunId = attachment.knowledge_insert_pipeline_run_id;
+  if (!existingRunId) {
+    return null;
+  }
+
+  const sourceId = `src-attachment-${attachment.attachment_id}`;
+  const status = await readExistingPipelineStatus(input.root, existingRunId);
+  if (status === null || status === 'failed') {
+    return null;
+  }
+
+  return {
+    runId: existingRunId,
+    sourceId,
+    status,
+    artifactsRoot: `state/artifacts/knowledge-insert-pipeline/${existingRunId}`
+  };
+}
+
+async function readExistingPipelineStatus(root: string, runId: string): Promise<string | null> {
+  try {
+    const state = await readKnowledgeInsertPipelineArtifact<KnowledgeInsertPipelineState>(root, runId, 'pipeline-state.json');
+    return state.status;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
     }
     throw error;
   }

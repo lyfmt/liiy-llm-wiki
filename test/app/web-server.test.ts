@@ -13,6 +13,8 @@ import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import { createRequestRun } from '../../src/domain/request-run.js';
 import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { loadKnowledgePage, saveKnowledgePage } from '../../src/storage/knowledge-page-store.js';
+import { loadChatAttachment } from '../../src/storage/chat-attachment-store.js';
+import { loadChatSession } from '../../src/storage/chat-session-store.js';
 import { saveRequestRunState, type RequestRunState } from '../../src/storage/request-run-state-store.js';
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
@@ -122,7 +124,7 @@ describe('createWebServer', () => {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 
@@ -649,7 +651,7 @@ describe('createWebServer', () => {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 
@@ -791,7 +793,7 @@ describe('createWebServer', () => {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 
@@ -1538,6 +1540,7 @@ describe('createWebServer', () => {
       try {
         const upload = await fetchJson<{
           ok: boolean;
+          attachment: { attachment_id: string };
           pipeline_run_id: string;
           pipeline_status: string;
         }>(`${baseUrl}/api/chat/uploads`, {
@@ -1561,6 +1564,9 @@ describe('createWebServer', () => {
           maxPartExtractionConcurrency: 3,
           resetKnowledgeGraphBeforeRun: true
         });
+        await expect(loadChatAttachment(root, upload.body.attachment.attachment_id)).resolves.toMatchObject({
+          knowledge_insert_pipeline_run_id: upload.body.pipeline_run_id
+        });
 
         const missing = await fetchJson<{ error: string }>(`${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`);
         expect(missing.status).toBe(404);
@@ -1570,6 +1576,197 @@ describe('createWebServer', () => {
           const completeLaunch = resolveLaunch as () => void;
           completeLaunch();
         }
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records failed state when auto knowledge insert launch rejects before writing pipeline state', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async () => {
+          throw new Error('promotion failed before state');
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        const state = await waitForPipelineState<{ status: string; errors: string[] }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        expect(state.errors).toContain('promotion failed before state');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('forwards an existing auto knowledge insert run id into the chat attachment context', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const launchInput: { current: CapturedChatRunInput | null } = { current: null };
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-test-key\n', 'utf8');
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ userRequest, sessionId, currentUserMessage, runId }) => {
+          launchInput.current = { userRequest, sessionId, currentUserMessage };
+          return {
+            runId,
+            intent: 'query',
+            plan: [],
+            assistantText: 'attachment received',
+            toolOutcomes: [],
+            savedRunState: path.join(root, 'state', 'runs', runId)
+          };
+        },
+        runKnowledgeInsertPipelineFromAttachment: async (input) => ({
+          runId: input.runId ?? 'pipeline-missing',
+          sourceId: `src-attachment-${input.attachmentId}`,
+          status: 'running'
+        })
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          session_id: string;
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        const launched = await fetchJson<{ status: string }>(`${baseUrl}/api/chat/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userRequest: 'summarize the uploaded file',
+            sessionId: upload.body.session_id,
+            attachmentIds: [upload.body.attachment.attachment_id]
+          })
+        });
+
+        expect(launched.status).toBe(200);
+        expect(launchInput.current?.currentUserMessage).toMatchObject({
+          role: 'user',
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: `Knowledge insert pipeline run: ${upload.body.pipeline_run_id}` })
+          ])
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('updates chat session status when the runtime has already persisted a final run state', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-test-key\n', 'utf8');
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ root: projectRoot, userRequest, sessionId, runId }) => {
+          await saveRequestRunState(projectRoot, {
+            request_run: createRequestRun({
+              run_id: runId,
+              session_id: sessionId,
+              user_request: userRequest,
+              intent: 'query',
+              plan: [],
+              status: 'done',
+              result_summary: 'saved by runtime'
+            }),
+            tool_outcomes: [],
+            events: [],
+            draft_markdown: '',
+            result_markdown: 'saved by runtime',
+            changeset: null
+          });
+          return {
+            runId,
+            intent: 'query',
+            plan: [],
+            assistantText: 'saved by runtime',
+            toolOutcomes: [],
+            savedRunState: path.join(projectRoot, 'state', 'runs', runId)
+          };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const launched = await fetchJson<{ session_id: string; status: string }>(`${baseUrl}/api/chat/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userRequest: 'status should settle' })
+        });
+
+        expect([200, 202]).toContain(launched.status);
+        await expect(waitForChatSession(root, launched.body.session_id, (session) => session.status === 'done')).resolves.toMatchObject({
+          status: 'done',
+          summary: 'saved by runtime'
+        });
+      } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
@@ -1812,6 +2009,42 @@ async function waitForRunState<T>(url: string, isReady: (body: T) => boolean, at
   }
 
   throw new Error(`Run did not reach expected state: ${JSON.stringify(lastBody)}`);
+}
+
+async function waitForPipelineState<T>(url: string, isReady: (body: T) => boolean, attempts = 50): Promise<T> {
+  let lastBody: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetchJson<T>(url);
+    lastBody = response.body;
+
+    if (response.status === 200 && isReady(response.body)) {
+      return response.body;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Pipeline did not reach expected state: ${JSON.stringify(lastBody)}`);
+}
+
+async function waitForChatSession(
+  root: string,
+  sessionId: string,
+  isReady: (session: Awaited<ReturnType<typeof loadChatSession>>) => boolean,
+  attempts = 50
+): Promise<Awaited<ReturnType<typeof loadChatSession>>> {
+  let lastSession: Awaited<ReturnType<typeof loadChatSession>> | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    lastSession = await loadChatSession(root, sessionId);
+    if (isReady(lastSession)) {
+      return lastSession;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Chat session did not reach expected state: ${JSON.stringify(lastSession)}`);
 }
 
 function createQueryDraftThenUpsertStream(): StreamFn {

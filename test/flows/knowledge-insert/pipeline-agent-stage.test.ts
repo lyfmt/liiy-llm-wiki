@@ -34,4 +34,67 @@ describe('runPipelineJsonStage', () => {
       generate: async () => 'not json'
     })).rejects.toThrow('Pipeline stage did not return valid JSON');
   });
+
+  it('retries when a stage returns invalid JSON before accepting a valid object', async () => {
+    const outputs = [
+      'I cannot return JSON for this one.',
+      JSON.stringify({
+        schemaVersion: 'knowledge-insert.topic-plan.v3',
+        sourceId: 'src-001',
+        topics: []
+      })
+    ];
+    const prompts: string[] = [];
+
+    const result = await runPipelineJsonStage({
+      stage: 'topics.planned',
+      schemaVersion: 'knowledge-insert.topic-plan.v3',
+      inputJson: { sourceId: 'src-001' },
+      exampleJson: { schemaVersion: 'knowledge-insert.topic-plan.v3', sourceId: 'src-example', topics: [] },
+      generate: async (prompt) => {
+        prompts.push(prompt);
+        return outputs.shift() ?? '{}';
+      }
+    });
+
+    expect(result.sourceId).toBe('src-001');
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain('Previous output was invalid JSON');
+  });
+
+  it('retries when a stage returns JSON that fails schema validation', async () => {
+    const outputs = [
+      JSON.stringify({
+        schemaVersion: 'knowledge-insert.topic-plan.v3',
+        sourceId: 'src-001'
+      }),
+      JSON.stringify({
+        schemaVersion: 'knowledge-insert.topic-plan.v3',
+        sourceId: 'src-001',
+        topics: []
+      })
+    ];
+    const prompts: string[] = [];
+
+    const result = await runPipelineJsonStage({
+      stage: 'topics.planned',
+      schemaVersion: 'knowledge-insert.topic-plan.v3',
+      inputJson: { sourceId: 'src-001' },
+      exampleJson: { schemaVersion: 'knowledge-insert.topic-plan.v3', sourceId: 'src-example', topics: [] },
+      generate: async (prompt) => {
+        prompts.push(prompt);
+        return outputs.shift() ?? '{}';
+      },
+      validate: (candidate) => {
+        if (!Array.isArray(candidate.topics)) {
+          throw new Error('missing topics array');
+        }
+      }
+    });
+
+    expect(result.topics).toEqual([]);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain('Previous output was invalid JSON');
+    expect(prompts[1]).toContain('missing topics array');
+  });
 });
