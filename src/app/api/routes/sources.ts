@@ -1,4 +1,4 @@
-import { toSourceDetailDto, toSourceSummaryListDto, buildSourceUpsertResponseDto } from '../mappers/source.js';
+import { toRawSourceDetailDto, toSourceDetailDto, toSourceSummaryListDto, buildSourceUpsertResponseDto } from '../mappers/source.js';
 import { parseSourceManifestUpsertRequestDto } from '../services/command.js';
 import type { ApiRouteContext } from '../route-context.js';
 import { readJsonBody, writeJson } from '../route-helpers.js';
@@ -12,6 +12,21 @@ export async function handleSourceRoutes(context: ApiRouteContext): Promise<bool
     const sources = await listSourceManifests(root);
 
     writeJson(response, 200, toSourceSummaryListDto(sources));
+    return true;
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/sources/') && pathname.endsWith('/raw')) {
+    const sourceId = decodeURIComponent(pathname.slice('/api/sources/'.length, -'/raw'.length));
+    const source = await loadSourceManifest(root, sourceId);
+
+    try {
+      writeJson(response, 200, await toRawSourceDetailDto(root, source));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode = message === 'Invalid raw document path' ? 400 : message.startsWith('Missing raw document:') ? 404 : 500;
+      writeJson(response, statusCode, { error: message });
+    }
+
     return true;
   }
 

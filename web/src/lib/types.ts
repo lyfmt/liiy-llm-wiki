@@ -156,6 +156,32 @@ export interface KnowledgeNavigationResponse {
   roots: KnowledgeNavigationNode[];
 }
 
+export type SourceManifestStatus = 'inbox' | 'accepted' | 'rejected' | 'processed';
+
+export interface SourceSummary {
+  id: string;
+  title: string;
+  type: string;
+  status: SourceManifestStatus;
+  raw_path: string;
+  imported_at: string;
+  tags: string[];
+  has_notes: boolean;
+  links: {
+    api: string;
+  };
+}
+
+export interface SourceDetail extends SourceSummary {
+  hash: string;
+  notes: string;
+}
+
+export interface RawSourceDetail extends SourceDetail {
+  body: string;
+  line_count: number;
+}
+
 export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 'rejected';
 export type TaskStatus = 'pending' | 'in_progress' | 'needs_review' | 'done';
 export type ChatModelApi = 'anthropic-messages' | 'openai-completions' | 'openai-responses';

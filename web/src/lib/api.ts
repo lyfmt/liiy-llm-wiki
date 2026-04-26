@@ -12,8 +12,10 @@ import type {
   DiscoveryResponse,
   KnowledgeNavigationResponse,
   KnowledgePageResponse,
+  RawSourceDetail,
   RunDetailResponse,
   RunSummary,
+  SourceSummary,
   TaskSummary
 } from './types';
 
@@ -46,6 +48,14 @@ export function getKnowledgePage(kind: string, slug: string): Promise<KnowledgeP
 
 export function getKnowledgeNavigation(): Promise<KnowledgeNavigationResponse> {
   return fetchJson<KnowledgeNavigationResponse>('/api/knowledge/navigation');
+}
+
+export function getSources(): Promise<SourceSummary[]> {
+  return fetchJson<SourceSummary[]>('/api/sources');
+}
+
+export function getRawSource(sourceId: string): Promise<RawSourceDetail> {
+  return fetchJson<RawSourceDetail>(`/api/sources/${encodeURIComponent(sourceId)}/raw`);
 }
 
 export function getChatOperations(): Promise<ChatOperationsSummary> {
