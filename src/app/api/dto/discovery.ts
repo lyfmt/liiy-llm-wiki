@@ -28,6 +28,7 @@ export interface DiscoveryResponseDto {
   totals: {
     sources: number;
     entities: number;
+    taxonomy: number;
     topics: number;
     queries: number;
   };

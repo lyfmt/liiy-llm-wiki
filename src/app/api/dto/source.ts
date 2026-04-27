@@ -21,6 +21,11 @@ export interface SourceDetailDto extends SourceSummaryDto {
   notes: string;
 }
 
+export interface RawSourceDetailDto extends SourceDetailDto {
+  body: string;
+  line_count: number;
+}
+
 export interface SourceUpsertResponseDto {
   ok: boolean;
   source: SourceDetailDto;

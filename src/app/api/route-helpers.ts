@@ -23,14 +23,14 @@ export async function readJsonBody(request: IncomingMessage): Promise<Record<str
   return value;
 }
 
-export function decodePageLocator(value: string): ['source' | 'entity' | 'topic' | 'query', string] {
+export function decodePageLocator(value: string): ['source' | 'entity' | 'taxonomy' | 'topic' | 'query', string] {
   const [kind, slug] = value.split('/', 2);
 
   if (!slug) {
     throw new Error('Invalid page locator');
   }
 
-  if (kind !== 'source' && kind !== 'entity' && kind !== 'topic' && kind !== 'query') {
+  if (kind !== 'source' && kind !== 'entity' && kind !== 'taxonomy' && kind !== 'topic' && kind !== 'query') {
     throw new Error('Invalid page locator');
   }
 

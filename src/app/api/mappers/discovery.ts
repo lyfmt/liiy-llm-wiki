@@ -14,8 +14,9 @@ export async function buildDiscoveryResponseDto(root: string): Promise<Discovery
   return {
     index_markdown: indexMarkdown,
     totals: {
-      sources: sections.find((section) => section.kind === 'source')?.count ?? 0,
+      sources: 0,
       entities: sections.find((section) => section.kind === 'entity')?.count ?? 0,
+      taxonomy: sections.find((section) => section.kind === 'taxonomy')?.count ?? 0,
       topics: sections.find((section) => section.kind === 'topic')?.count ?? 0,
       queries: sections.find((section) => section.kind === 'query')?.count ?? 0
     },
@@ -24,16 +25,16 @@ export async function buildDiscoveryResponseDto(root: string): Promise<Discovery
 }
 
 async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
-  const [sources, entities, topics, queries] = await Promise.all([
-    listKnowledgePages(root, 'source'),
+  const [entities, taxonomy, topics, queries] = await Promise.all([
     listKnowledgePages(root, 'entity'),
+    listKnowledgePages(root, 'taxonomy'),
     listKnowledgePages(root, 'topic'),
     listKnowledgePages(root, 'query')
   ]);
 
   const loaded = await Promise.all([
-    ...sources.map((slug) => loadKnowledgePageMetadata(root, 'source', slug)),
     ...entities.map((slug) => loadKnowledgePageMetadata(root, 'entity', slug)),
+    ...taxonomy.map((slug) => loadKnowledgePageMetadata(root, 'taxonomy', slug)),
     ...topics.map((slug) => loadKnowledgePageMetadata(root, 'topic', slug)),
     ...queries.map((slug) => loadKnowledgePageMetadata(root, 'query', slug))
   ]);
@@ -43,10 +44,10 @@ async function loadAllKnowledgePages(root: string): Promise<KnowledgePage[]> {
 
 function buildDiscoverySections(pages: KnowledgePage[]): DiscoverySectionDto[] {
   return ([
+    ['taxonomy', 'Taxonomy', 'Browse durable taxonomy pages that define the wiki navigation tree.'],
     ['topic', 'Topics', 'Start from durable topics that summarize concepts and connect evidence.'],
     ['entity', 'Entities', 'Inspect named entities, references, and explicit links across the wiki.'],
-    ['query', 'Queries', 'Reuse durable answers when a request has already been grounded and captured.'],
-    ['source', 'Sources', 'Trace claims back to accepted manifests and raw evidence.']
+    ['query', 'Queries', 'Reuse durable answers when a request has already been grounded and captured.']
   ] as const).map(([kind, title, description]) => {
     const items = pages
       .filter((page) => page.kind === kind)

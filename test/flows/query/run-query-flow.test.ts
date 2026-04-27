@@ -216,6 +216,73 @@ describe('runQueryFlow', () => {
     }
   });
 
+  it('includes taxonomy pages as first-class wiki evidence candidates', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-query-taxonomy-'));
+
+    try {
+      await mkdir(path.join(root, 'raw', 'accepted'), { recursive: true });
+      await writeFile(
+        path.join(root, 'raw', 'accepted', 'design.md'),
+        '# Patch First\n\nPatch-first updates keep page structure stable in source form.\n',
+        'utf8'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/topics/patch-first.md',
+          kind: 'topic',
+          title: 'Patch First',
+          summary: 'Patch-first updates keep page structure stable.',
+          tags: ['patch-first'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z'
+        }),
+        '# Patch First\n\nPatch-first updates keep page structure stable.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Engineering taxonomy that hosts patch-first topics.',
+          tags: ['taxonomy', 'engineering'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z'
+        }),
+        '# Engineering\n\nEngineering taxonomy that hosts patch-first topics.\n'
+      );
+
+      const result = await runQueryFlow(root, {
+        question: 'what is patch first?',
+        persistQueryPage: false
+      });
+
+      expect(result.sources).toContain('wiki/taxonomy/engineering.md');
+      expect(result.wikiEvidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: 'wiki/taxonomy/engineering.md',
+            kind: 'taxonomy',
+            title: 'Engineering',
+            sourceRefs: ['raw/accepted/design.md'],
+            outgoingLinks: ['wiki/topics/patch-first.md'],
+            matchReasons: expect.arrayContaining(['links-to:wiki/topics/patch-first.md'])
+          })
+        ])
+      );
+      expect(result.answer).toContain(
+        'Engineering (wiki/taxonomy/engineering.md): Engineering taxonomy that hosts patch-first topics.'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns no-result output when nothing relevant is found', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-query-'));
 

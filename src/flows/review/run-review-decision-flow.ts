@@ -304,7 +304,16 @@ function appendReviewResolution(
 }
 
 function buildPagePath(kind: KnowledgePageKind, slug: string): string {
-  const directory = kind === 'source' ? 'sources' : kind === 'entity' ? 'entities' : kind === 'query' ? 'queries' : 'topics';
+  const directory =
+    kind === 'source'
+      ? 'sources'
+      : kind === 'entity'
+        ? 'entities'
+        : kind === 'taxonomy'
+          ? 'taxonomy'
+          : kind === 'query'
+            ? 'queries'
+            : 'topics';
   return `wiki/${directory}/${slug}.md`;
 }
 
@@ -327,7 +336,7 @@ function isReviewableUpsertArguments(value: unknown): value is ReviewableUpsertA
 }
 
 function isKnowledgePageKind(value: unknown): value is KnowledgePageKind {
-  return value === 'source' || value === 'entity' || value === 'topic' || value === 'query';
+  return value === 'source' || value === 'entity' || value === 'taxonomy' || value === 'topic' || value === 'query';
 }
 
 function isStringArray(value: unknown): value is string[] {

@@ -12,6 +12,8 @@ export function buildKnowledgePagePath(root: string, kind: KnowledgePageKind, sl
       ? paths.wikiSources
       : kind === 'entity'
         ? paths.wikiEntities
+        : kind === 'taxonomy'
+          ? paths.wikiTaxonomy
         : kind === 'topic'
           ? paths.wikiTopics
           : paths.wikiQueries;

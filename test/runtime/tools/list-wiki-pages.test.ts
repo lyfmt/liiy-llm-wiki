@@ -47,6 +47,21 @@ describe('createListWikiPagesTool', () => {
       await saveKnowledgePage(
         root,
         createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Taxonomy for engineering topics.',
+          tags: ['taxonomy'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-13T00:00:00.000Z'
+        }),
+        '# Engineering\n\nTaxonomy for engineering topics.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
           path: 'wiki/sources/patch-overview.md',
           kind: 'source',
           title: 'Patch Overview',
@@ -72,9 +87,16 @@ describe('createListWikiPagesTool', () => {
       expect(result.details.evidence).toEqual(['wiki/topics/patch-first.md']);
       expect(result.details.resultMarkdown).toContain('wiki/topics/patch-first.md');
       expect(result.details.resultMarkdown).toContain('aliases: Patch Strategy');
-      expect(result.details.resultMarkdown).toContain('incoming_links: 1');
+      expect(result.details.resultMarkdown).toContain('incoming_links: 2');
       expect(result.details.resultMarkdown).toContain('match_score:');
       expect(result.details.resultMarkdown).not.toContain('wiki/topics/other-topic.md');
+
+      const taxonomyResult = await tool.execute('tool-call-2', { kind: 'taxonomy', limit: 5 });
+
+      expect(taxonomyResult.details.summary).toBe('listed 1 wiki page(s)');
+      expect(taxonomyResult.details.evidence).toEqual(['wiki/taxonomy/engineering.md']);
+      expect(taxonomyResult.details.resultMarkdown).toContain('## Taxonomy (1)');
+      expect(taxonomyResult.details.resultMarkdown).toContain('wiki/taxonomy/engineering.md');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

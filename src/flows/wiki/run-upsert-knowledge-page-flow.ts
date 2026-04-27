@@ -219,6 +219,8 @@ function directoryNameForKind(kind: KnowledgePageKind): string {
     ? 'sources'
     : kind === 'entity'
       ? 'entities'
+      : kind === 'taxonomy'
+        ? 'taxonomy'
       : kind === 'query'
         ? 'queries'
         : 'topics';

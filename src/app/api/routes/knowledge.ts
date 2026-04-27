@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { buildDiscoveryResponseDto } from '../mappers/discovery.js';
+import { buildKnowledgeNavigationResponseDto } from '../mappers/knowledge-navigation.js';
 import { buildKnowledgePageResponseDto } from '../mappers/knowledge-page.js';
 import { buildKnowledgePageUpsertResponseDto } from '../mappers/knowledge-page-command.js';
 import { buildWikiIndexResponseDto } from '../mappers/wiki-index.js';
@@ -19,6 +20,11 @@ export async function handleKnowledgeRoutes(context: ApiRouteContext): Promise<b
 
   if (method === 'GET' && pathname === '/api/wiki/index') {
     writeJson(response, 200, await buildWikiIndexResponseDto(root));
+    return true;
+  }
+
+  if (method === 'GET' && pathname === '/api/knowledge/navigation') {
+    writeJson(response, 200, await buildKnowledgeNavigationResponseDto(root));
     return true;
   }
 

@@ -6,6 +6,7 @@ describe('buildKnowledgePagePath', () => {
   it.each([
     ['source', 'origin-story', '/tmp/llm-wiki-liiy/wiki/sources/origin-story.md'],
     ['entity', 'anthropic', '/tmp/llm-wiki-liiy/wiki/entities/anthropic.md'],
+    ['taxonomy', 'engineering', '/tmp/llm-wiki-liiy/wiki/taxonomy/engineering.md'],
     ['topic', 'llm-wiki', '/tmp/llm-wiki-liiy/wiki/topics/llm-wiki.md'],
     ['query', 'what-is-patch-first', '/tmp/llm-wiki-liiy/wiki/queries/what-is-patch-first.md']
   ] as const)('maps %s pages into the correct wiki directory', (kind, slug, expectedPath) => {

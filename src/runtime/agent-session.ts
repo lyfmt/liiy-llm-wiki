@@ -20,6 +20,7 @@ import { resolveRuntimeModel } from './resolve-runtime-model.js';
 import { createRuntimeContext } from './runtime-context.js';
 import { createRuntimeRunState, type RuntimeToolOutcome } from './request-run-state.js';
 import { buildRuntimeSystemPrompt } from './system-prompt.js';
+import { startKnowledgeInsertPipelineFromAttachment } from '../flows/knowledge-insert/start-knowledge-insert-pipeline-from-attachment.js';
 import type { ChatAttachmentRef } from '../domain/chat-attachment.js';
 import type { RuntimeConversationMessage, RuntimeUserMessage } from './chat-message-content.js';
 import {
@@ -417,7 +418,14 @@ function buildRuntimeTools(
 ) {
   const catalog = buildRuntimeToolCatalog(runtimeContext, {
     querySynthesizer,
-    knowledgeDraftSynthesizer
+    knowledgeDraftSynthesizer,
+    knowledgeInsertPipelineLauncher: {
+      startFromAttachment: ({ attachmentId, sessionId, root }) =>
+        startKnowledgeInsertPipelineFromAttachment({ attachmentId, sessionId, root }),
+      startFromSource: async () => {
+        throw new Error('Starting knowledge insert pipeline from source is not implemented yet');
+      }
+    }
   });
   const runSubagentTool = createRunSubagentTool(runtimeContext, {
     profiles: subagents,
@@ -430,7 +438,31 @@ function buildRuntimeTools(
     run_subagent: runSubagentTool
   };
   const skillOwnedTools = new Set(skills.flatMap((skill) => skill.allowedTools));
-  const exposedCatalogTools = Object.values(catalog).filter((tool) => !skillOwnedTools.has(tool.name));
+  const legacyKnowledgeInsertInternalTools = new Set([
+    'prepare_source_resource',
+    'split_resource_blocks',
+    'split_block_batches',
+    'merge_extracted_knowledge',
+    'merge_section_candidates',
+    'build_topic_catalog',
+    'build_taxonomy_catalog',
+    'resolve_source_topics',
+    'assign_sections_to_topics',
+    'resolve_topic_taxonomy',
+    'resolve_topic_hosts',
+    'audit_topic_hosting',
+    'audit_taxonomy_hosting',
+    'build_topic_insertion_plan',
+    'draft_topic_pages_from_plan',
+    'upsert_knowledge_insert_graph'
+  ]);
+  const exposedCatalogTools = Object.values(catalog).filter((tool) => {
+    if (legacyKnowledgeInsertInternalTools.has(tool.name)) {
+      return false;
+    }
+
+    return !skillOwnedTools.has(tool.name) || tool.name === 'start_knowledge_insert_pipeline';
+  });
 
   return [
     ...exposedCatalogTools,

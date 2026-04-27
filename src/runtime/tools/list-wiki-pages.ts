@@ -10,6 +10,7 @@ import type { RuntimeToolOutcome } from '../request-run-state.js';
 const pageKind = Type.Union([
   Type.Literal('source'),
   Type.Literal('entity'),
+  Type.Literal('taxonomy'),
   Type.Literal('topic'),
   Type.Literal('query')
 ]);
@@ -30,7 +31,7 @@ export function createListWikiPagesTool(runtimeContext: RuntimeContext): AgentTo
       'Explore the wiki structure and locate potentially relevant pages before deep reading. Start here when you need orientation inside the knowledge base. Skip this tool when the request does not require wiki knowledge.',
     parameters,
     execute: async (_toolCallId, params) => {
-      const allKinds = ['source', 'entity', 'topic', 'query'] satisfies KnowledgePageKind[];
+      const allKinds = ['source', 'entity', 'taxonomy', 'topic', 'query'] satisfies KnowledgePageKind[];
       const kinds = params.kind ? [params.kind] : allKinds;
       const normalizedQuery = params.query?.trim().toLowerCase() ?? '';
       const limit = normalizeLimit(params.limit);

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   toAcceptedChatRunResponseDto,
@@ -37,17 +39,28 @@ import type { ApiRouteContext } from '../route-context.js';
 import { loadRequestRunStateIfExists, readJsonBody, writeJson } from '../route-helpers.js';
 import { createChatSettings } from '../../../domain/chat-settings.js';
 import type { ChatAttachmentRef } from '../../../domain/chat-attachment.js';
-import { createRequestRun } from '../../../domain/request-run.js';
+import { createRequestRun, type RequestRunStatus } from '../../../domain/request-run.js';
+import type { ChatSession } from '../../../domain/chat-session.js';
+import { createKnowledgeInsertPipelineState } from '../../../domain/knowledge-insert-pipeline.js';
+import type { KnowledgeInsertPipelineState } from '../../../domain/knowledge-insert-pipeline.js';
 import { syncReviewTask } from '../../../flows/review/sync-review-task.js';
 import { buildUserMessageWithAttachments } from '../../../runtime/chat-attachment-content.js';
 import { buildIntentPlan, classifyIntent } from '../../../runtime/intent-classifier.js';
 import { createRuntimeRunState } from '../../../runtime/request-run-state.js';
 import type { RunRuntimeAgentResult } from '../../../runtime/agent-session.js';
 import { resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
-import { resolveChatAttachments, saveBufferedChatAttachment, toChatAttachmentRef } from '../../../storage/chat-attachment-store.js';
+import {
+  markChatAttachmentKnowledgeInsertPipeline,
+  findChatAttachmentByKnowledgeInsertPipelineRunId,
+  resolveChatAttachments,
+  saveBufferedChatAttachment,
+  toChatAttachmentRef
+} from '../../../storage/chat-attachment-store.js';
 import { saveRequestRunState } from '../../../storage/request-run-state-store.js';
 import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
+import { buildProjectPaths } from '../../../config/project-paths.js';
+import { readKnowledgeInsertPipelineArtifact, writeKnowledgeInsertPipelineArtifact } from '../../../flows/knowledge-insert/pipeline-artifacts.js';
 
 export async function handleChatRoutes(context: ApiRouteContext): Promise<boolean> {
   const { root, request, response, method, pathname, url, dependencies } = context;
@@ -124,17 +137,96 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
     const chatSession = payload.sessionId
       ? await ensureChatSession(root, payload.fileName, payload.sessionId)
       : await createChatSessionForRequest(root, payload.fileName);
-    const attachment = await saveBufferedChatAttachment(root, {
+    let attachment = await saveBufferedChatAttachment(root, {
       sessionId: chatSession.session_id,
       fileName: payload.fileName,
       mimeType: payload.mimeType,
       data: Buffer.from(payload.dataBase64, 'base64')
     });
+    const pipelineRunId = payload.autoKnowledgeInsert && dependencies.runKnowledgeInsertPipelineFromAttachment
+      ? `pipeline-${randomUUID()}`
+      : null;
+    if (pipelineRunId && dependencies.runKnowledgeInsertPipelineFromAttachment) {
+      attachment = await markChatAttachmentKnowledgeInsertPipeline(root, attachment.attachment_id, pipelineRunId);
+      void dependencies.runKnowledgeInsertPipelineFromAttachment({
+        root,
+        attachmentId: attachment.attachment_id,
+        sessionId: chatSession.session_id,
+        runId: pipelineRunId,
+        maxPartExtractionConcurrency: payload.maxPartExtractionConcurrency,
+        resetKnowledgeGraphBeforeRun: payload.resetKnowledgeGraphBeforeRun
+      }).catch((error: unknown) =>
+        recordFailedAutoKnowledgeInsertPipelineLaunch(root, pipelineRunId, attachment.attachment_id, error)
+      );
+    }
 
     writeJson(response, 201, {
       ok: true,
       session_id: chatSession.session_id,
-      attachment: toChatAttachmentRef(attachment)
+      attachment: toChatAttachmentRef(attachment),
+      ...(pipelineRunId
+        ? {
+            pipeline_run_id: pipelineRunId,
+            pipeline_status: 'running'
+          }
+        : {})
+    });
+    return true;
+  }
+
+  if (method === 'GET' && pathname === '/api/knowledge-insert/pipelines') {
+    writeJson(response, 200, await listRecentKnowledgeInsertPipelines(root));
+    return true;
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/knowledge-insert/pipelines/')) {
+    const runId = decodeURIComponent(pathname.slice('/api/knowledge-insert/pipelines/'.length));
+    try {
+      writeJson(response, 200, await readKnowledgeInsertPipelineStateForResponse(root, runId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        writeJson(response, 404, { error: 'pipeline_not_found' });
+        return true;
+      }
+      throw error;
+    }
+    return true;
+  }
+
+  if (method === 'POST' && pathname.startsWith('/api/knowledge-insert/pipelines/') && pathname.endsWith('/retry')) {
+    const runId = decodeURIComponent(
+      pathname.slice('/api/knowledge-insert/pipelines/'.length, pathname.length - '/retry'.length)
+    );
+    const attachment = await findChatAttachmentByKnowledgeInsertPipelineRunId(root, runId);
+
+    if (!attachment) {
+      writeJson(response, 404, { error: 'pipeline_attachment_not_found' });
+      return true;
+    }
+
+    if (!dependencies.runKnowledgeInsertPipelineFromAttachment) {
+      writeJson(response, 503, { error: 'knowledge_insert_pipeline_unavailable' });
+      return true;
+    }
+
+    const retryRunId = `pipeline-${randomUUID()}`;
+    const updatedAttachment = await markChatAttachmentKnowledgeInsertPipeline(root, attachment.attachment_id, retryRunId);
+
+    void dependencies.runKnowledgeInsertPipelineFromAttachment({
+      root,
+      attachmentId: updatedAttachment.attachment_id,
+      sessionId: updatedAttachment.session_id,
+      runId: retryRunId
+    }).catch((error: unknown) =>
+      recordFailedAutoKnowledgeInsertPipelineLaunch(root, retryRunId, updatedAttachment.attachment_id, error)
+    );
+
+    writeJson(response, 202, {
+      ok: true,
+      session_id: updatedAttachment.session_id,
+      attachment: toChatAttachmentRef(updatedAttachment),
+      pipeline_run_id: retryRunId,
+      pipeline_status: 'running'
     });
     return true;
   }
@@ -385,6 +477,121 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
   return false;
 }
 
+async function recordFailedAutoKnowledgeInsertPipelineLaunch(
+  root: string,
+  runId: string,
+  attachmentId: string,
+  error: unknown
+): Promise<void> {
+  try {
+    await readKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json');
+    return;
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw readError;
+    }
+  }
+
+  await writeKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
+    runId,
+    sourceId: `src-attachment-${attachmentId}`,
+    storageMode: 'pg-primary',
+    currentStage: 'source.uploaded',
+    status: 'failed',
+    artifacts: {},
+    errors: [error instanceof Error ? error.message : String(error)]
+  }));
+}
+
+async function listRecentKnowledgeInsertPipelines(root: string): Promise<Array<{
+  run_id: string;
+  file_name: string;
+  attachment: ChatAttachmentRef | null;
+  state: KnowledgeInsertPipelineState;
+}>> {
+  const pipelineRoot = path.join(buildProjectPaths(root).stateArtifacts, 'knowledge-insert-pipeline');
+  let entries: string[];
+
+  try {
+    entries = await readdir(pipelineRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const states = await Promise.all(entries.map(async (runId) => {
+    try {
+      const statePath = path.join(pipelineRoot, runId, 'pipeline-state.json');
+      const [state, stateStat] = await Promise.all([
+        readKnowledgeInsertPipelineArtifact<KnowledgeInsertPipelineState>(root, runId, 'pipeline-state.json'),
+        stat(statePath)
+      ]);
+      const attachment = await findChatAttachmentByKnowledgeInsertPipelineRunId(root, runId);
+      const responseState = normalizeKnowledgeInsertPipelineStateForResponse(state, stateStat.mtimeMs);
+
+      return {
+        updatedAtMs: stateStat.mtimeMs,
+        run_id: runId,
+        file_name: attachment?.file_name ?? responseState.sourceId,
+        attachment: attachment ? toChatAttachmentRef(attachment) : null,
+        state: responseState
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }));
+
+  return states
+    .filter((item): item is Exclude<(typeof states)[number], null> => item !== null)
+    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+    .slice(0, 10)
+    .map((item) => ({
+      run_id: item.run_id,
+      file_name: item.file_name,
+      attachment: item.attachment,
+      state: item.state
+    }));
+}
+
+async function readKnowledgeInsertPipelineStateForResponse(root: string, runId: string): Promise<KnowledgeInsertPipelineState> {
+  const statePath = path.join(buildProjectPaths(root).stateArtifacts, 'knowledge-insert-pipeline', runId, 'pipeline-state.json');
+  const [state, stateStat] = await Promise.all([
+    readKnowledgeInsertPipelineArtifact<KnowledgeInsertPipelineState>(root, runId, 'pipeline-state.json'),
+    stat(statePath)
+  ]);
+
+  return normalizeKnowledgeInsertPipelineStateForResponse(state, stateStat.mtimeMs);
+}
+
+function normalizeKnowledgeInsertPipelineStateForResponse(
+  state: KnowledgeInsertPipelineState,
+  stateModifiedAtMs: number
+): KnowledgeInsertPipelineState {
+  if (state.status !== 'running' || stateModifiedAtMs >= getProcessStartedAtMs()) {
+    return state;
+  }
+
+  const interruptionMessage = 'Pipeline was interrupted before this server process started. Retry to start a new run for the same attachment.';
+
+  return {
+    ...state,
+    status: 'failed',
+    errors: state.errors.includes(interruptionMessage)
+      ? [...state.errors]
+      : [...state.errors, interruptionMessage],
+    ...(state.partProgress ? { partProgress: { ...state.partProgress, running: [...state.partProgress.running] } } : {})
+  };
+}
+
+function getProcessStartedAtMs(): number {
+  return Date.now() - process.uptime() * 1000;
+}
+
 async function persistResolvedChatRunIfStillRunning(
   root: string,
   runId: string,
@@ -396,6 +603,13 @@ async function persistResolvedChatRunIfStillRunning(
   const existingRunState = await loadRequestRunStateIfExists(root, runId);
 
   if (existingRunState !== null && existingRunState.request_run.status !== 'running') {
+    await recordRunInChatSession(root, {
+      session: await ensureChatSession(root, userRequest, sessionId),
+      runId,
+      status: toChatSessionStatus(existingRunState.request_run.status),
+      summary: existingRunState.request_run.result_summary
+    });
+    await syncReviewTask(root, existingRunState);
     return;
   }
 
@@ -414,10 +628,26 @@ async function persistResolvedChatRunIfStillRunning(
   await recordRunInChatSession(root, {
     session: await ensureChatSession(root, userRequest, sessionId),
     runId,
-    status: persistedState.request_run.status === 'needs_review' ? 'needs_review' : persistedState.request_run.status === 'failed' ? 'failed' : 'done',
+    status: toChatSessionStatus(persistedState.request_run.status),
     summary: persistedState.request_run.result_summary
   });
   await syncReviewTask(root, persistedState);
+}
+
+function toChatSessionStatus(status: RequestRunStatus): ChatSession['status'] {
+  if (status === 'needs_review') {
+    return 'needs_review';
+  }
+
+  if (status === 'failed') {
+    return 'failed';
+  }
+
+  if (status === 'running') {
+    return 'running';
+  }
+
+  return 'done';
 }
 
 async function persistFailedChatRunLaunchIfStillRunning(

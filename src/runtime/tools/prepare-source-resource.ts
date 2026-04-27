@@ -24,6 +24,8 @@ export interface PreparedSourceResourceArtifact {
   manifestId: string;
   rawPath: string;
   structuredMarkdown: string;
+  sectionHints: string[];
+  topicHints: string[];
   sections: Array<{
     headingPath: string[];
     startLine: number;
@@ -65,6 +67,8 @@ export function createPrepareSourceResourceTool(
         manifestId: manifest.id,
         rawPath: manifest.path,
         structuredMarkdown,
+        sectionHints: [],
+        topicHints: [],
         sections: [],
         metadata: {
           title: manifest.title,

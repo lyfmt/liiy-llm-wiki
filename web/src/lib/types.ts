@@ -1,5 +1,5 @@
 export interface DiscoveryItem {
-  kind: 'source' | 'entity' | 'topic' | 'query';
+  kind: 'source' | 'entity' | 'taxonomy' | 'topic' | 'query';
   slug: string;
   title: string;
   summary: string;
@@ -26,6 +26,7 @@ export interface DiscoveryResponse {
   totals: {
     sources: number;
     entities: number;
+    taxonomy: number;
     topics: number;
     queries: number;
   };
@@ -113,6 +114,72 @@ export interface KnowledgePageResponse {
       };
     }>;
   };
+}
+
+export type KnowledgeNavigationNodeKind =
+  | 'taxonomy'
+  | 'topic'
+  | 'section_group'
+  | 'entity_group'
+  | 'concept_group'
+  | 'section'
+  | 'entity'
+  | 'concept';
+
+export type KnowledgeGraphRelatedTargetKind = 'topic' | 'section' | 'entity' | 'concept' | 'evidence';
+
+export interface KnowledgeGraphRelatedLink {
+  edge_id: string;
+  type: 'about' | 'grounded_by' | 'mentions' | 'part_of';
+  direction: 'outgoing' | 'incoming';
+  target: {
+    id: string;
+    kind: KnowledgeGraphRelatedTargetKind;
+    title: string;
+    summary: string;
+    href: string | null;
+  };
+}
+
+export interface KnowledgeNavigationNode {
+  id: string;
+  kind: KnowledgeNavigationNodeKind;
+  title: string;
+  summary: string;
+  count: number;
+  href: string | null;
+  related: KnowledgeGraphRelatedLink[];
+  children: KnowledgeNavigationNode[];
+}
+
+export interface KnowledgeNavigationResponse {
+  roots: KnowledgeNavigationNode[];
+}
+
+export type SourceManifestStatus = 'inbox' | 'accepted' | 'rejected' | 'processed';
+
+export interface SourceSummary {
+  id: string;
+  title: string;
+  type: string;
+  status: SourceManifestStatus;
+  raw_path: string;
+  imported_at: string;
+  tags: string[];
+  has_notes: boolean;
+  links: {
+    api: string;
+  };
+}
+
+export interface SourceDetail extends SourceSummary {
+  hash: string;
+  notes: string;
+}
+
+export interface RawSourceDetail extends SourceDetail {
+  body: string;
+  line_count: number;
 }
 
 export type RequestRunStatus = 'running' | 'needs_review' | 'done' | 'failed' | 'rejected';
@@ -404,6 +471,52 @@ export interface ChatAttachmentUploadResponse {
   ok: true;
   session_id: string;
   attachment: ChatAttachmentRef;
+  pipeline_run_id?: string;
+  pipeline_status?: string;
+  pipeline_source_id?: string;
+}
+
+export interface KnowledgeInsertPipelineRetryResponse {
+  ok: true;
+  session_id: string;
+  attachment: ChatAttachmentRef;
+  pipeline_run_id: string;
+  pipeline_status: string;
+}
+
+export interface KnowledgeInsertPipelineSummary {
+  run_id: string;
+  file_name: string;
+  attachment: ChatAttachmentRef | null;
+  state: KnowledgeInsertPipelineState;
+}
+
+export interface KnowledgeInsertPipelineState {
+  schemaVersion: 'knowledge-insert.pipeline.v3';
+  runId: string;
+  sourceId: string;
+  storageMode: 'pg-primary';
+  currentStage:
+    | 'source.uploaded'
+    | 'source.prepared'
+    | 'topics.planned'
+    | 'parts.planned'
+    | 'parts.materialized'
+    | 'parts.extracted'
+    | 'knowledge.connected'
+    | 'graph.prepared'
+    | 'graph.written'
+    | 'wiki.projected'
+    | 'lint.completed';
+  status: 'running' | 'needs_review' | 'done' | 'failed';
+  artifacts: Record<string, string>;
+  errors: string[];
+  partProgress?: {
+    total: number;
+    completed: number;
+    running: string[];
+    pending: number;
+  };
 }
 
 export interface TaskSummary {

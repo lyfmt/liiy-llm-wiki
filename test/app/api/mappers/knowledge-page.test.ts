@@ -502,6 +502,61 @@ describe('buildKnowledgePageResponseDto', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('builds response DTOs for taxonomy pages without topic graph loading', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-knowledge-page-taxonomy-mapper-'));
+
+    try {
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Shared engineering taxonomy.',
+          aliases: ['Software Engineering'],
+          source_refs: ['raw/accepted/design.md'],
+          outgoing_links: ['wiki/topics/patch-first.md'],
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z'
+        }),
+        '# Engineering\n\nShared engineering taxonomy.\n'
+      );
+
+      const graphLoader = await import('../../../../src/storage/load-topic-graph-projection.js');
+      const graphDatabase = await import('../../../../src/storage/graph-database.js');
+      const { buildKnowledgePageResponseDto } = await import('../../../../src/app/api/mappers/knowledge-page.js');
+      const response = await buildKnowledgePageResponseDto(root, 'taxonomy', 'engineering');
+
+      expect(response.page).toMatchObject({
+        kind: 'taxonomy',
+        slug: 'engineering',
+        path: 'wiki/taxonomy/engineering.md',
+        title: 'Engineering',
+        summary: 'Shared engineering taxonomy.',
+        aliases: ['Software Engineering']
+      });
+      expect(response.navigation.taxonomy).toEqual([]);
+      expect(response.navigation.sections).toEqual([]);
+      expect(response.navigation.entities).toEqual([]);
+      expect(response.navigation.assertions).toEqual([]);
+      expect(response.navigation.outgoing_links).toEqual([
+        {
+          target: 'wiki/topics/patch-first.md',
+          is_local_wiki_page: false,
+          links: {
+            app: null,
+            api: null
+          }
+        }
+      ]);
+      expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(graphLoader.loadTopicGraphProjectionInput)).toHaveBeenCalledWith(expect.any(Object), 'patch-first');
+      expect(vi.mocked(graphDatabase.getSharedGraphDatabasePool)).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function buildTopicGraphProjectionInput(slug: string) {

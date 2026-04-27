@@ -68,7 +68,7 @@ export async function runQueryFlow(root: string, input: RunQueryFlowInput): Prom
     throw new Error('Invalid query question: cannot derive query slug');
   }
 
-  const pages = await collectPages(root, ['source', 'entity', 'topic', 'query']);
+  const pages = await collectPages(root, ['source', 'entity', 'taxonomy', 'topic', 'query']);
   const selectedEvidence = selectNavigationEvidence(input.question, pages);
 
   if (selectedEvidence.length === 0) {

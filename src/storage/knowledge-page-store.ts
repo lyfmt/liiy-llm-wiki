@@ -133,6 +133,8 @@ function directoryNameForKind(kind: KnowledgePageKind): string {
     ? 'sources'
     : kind === 'entity'
       ? 'entities'
+      : kind === 'taxonomy'
+        ? 'taxonomy'
       : kind === 'query'
         ? 'queries'
         : 'topics';
@@ -209,7 +211,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseKind(value: unknown): KnowledgePageKind {
-  if (value === 'source' || value === 'entity' || value === 'topic' || value === 'query') {
+  if (value === 'source' || value === 'entity' || value === 'taxonomy' || value === 'topic' || value === 'query') {
     return value;
   }
 

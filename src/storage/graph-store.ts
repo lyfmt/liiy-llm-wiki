@@ -257,8 +257,8 @@ function mapGraphNodeRow(row: Record<string, unknown>): GraphNode {
     review_state: row.review_state as GraphNode['review_state'],
     retrieval_text: String(row.retrieval_text ?? ''),
     attributes: toRecord(row.attributes),
-    created_at: String(row.created_at),
-    updated_at: String(row.updated_at)
+    created_at: toTimestampString(row.created_at),
+    updated_at: toTimestampString(row.updated_at)
   });
 }
 
@@ -275,8 +275,8 @@ function mapGraphEdgeRow(row: Record<string, unknown>): GraphEdge {
     provenance: row.provenance as GraphEdge['provenance'],
     review_state: row.review_state as GraphEdge['review_state'],
     qualifiers: toRecord(row.qualifiers),
-    created_at: String(row.created_at),
-    updated_at: String(row.updated_at)
+    created_at: toTimestampString(row.created_at),
+    updated_at: toTimestampString(row.updated_at)
   });
 }
 
@@ -331,4 +331,12 @@ function toGraphEdgeParams(edge: GraphEdge): unknown[] {
     edge.created_at,
     edge.updated_at
   ];
+}
+
+function toTimestampString(value: unknown): string {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? String(value) : value.toISOString();
+  }
+
+  return String(value);
 }

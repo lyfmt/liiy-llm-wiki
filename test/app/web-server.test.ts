@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -13,10 +13,14 @@ import { createKnowledgePage } from '../../src/domain/knowledge-page.js';
 import { createRequestRun } from '../../src/domain/request-run.js';
 import { createSourceManifest } from '../../src/domain/source-manifest.js';
 import { loadKnowledgePage, saveKnowledgePage } from '../../src/storage/knowledge-page-store.js';
+import { loadChatAttachment } from '../../src/storage/chat-attachment-store.js';
+import { loadChatSession } from '../../src/storage/chat-session-store.js';
 import { saveRequestRunState, type RequestRunState } from '../../src/storage/request-run-state-store.js';
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
 import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
+import { writeKnowledgeInsertPipelineArtifact } from '../../src/flows/knowledge-insert/pipeline-artifacts.js';
+import { createKnowledgeInsertPipelineState } from '../../src/domain/knowledge-insert-pipeline.js';
 
 vi.mock('../../src/storage/load-topic-graph-projection.js', () => ({
   loadTopicGraphProjectionInput: vi.fn(async (_client, slug: string) =>
@@ -37,6 +41,95 @@ interface CapturedChatRunInput {
 }
 
 describe('createWebServer', () => {
+  it('serves readonly raw source details from accepted raw documents', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-raw-source-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await mkdir(path.join(root, 'raw', 'accepted'), { recursive: true });
+      await mkdir(path.join(root, 'raw', 'inbox'), { recursive: true });
+      await writeFile(path.join(root, 'raw', 'accepted', 'design.md'), 'first line\nsecond line\n', 'utf8');
+      await writeFile(path.join(root, 'raw', 'inbox', 'draft.md'), 'draft line\n', 'utf8');
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-accepted',
+          path: 'raw/accepted/design.md',
+          title: 'Accepted Design',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:accepted',
+          imported_at: '2026-04-26T00:00:00.000Z',
+          tags: ['design']
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-inbox',
+          path: 'raw/inbox/draft.md',
+          title: 'Inbox Draft',
+          type: 'markdown',
+          status: 'inbox',
+          hash: 'sha256:inbox',
+          imported_at: '2026-04-26T00:01:00.000Z',
+          tags: []
+        })
+      );
+      await saveSourceManifest(
+        root,
+        createSourceManifest({
+          id: 'src-missing',
+          path: 'raw/accepted/missing.md',
+          title: 'Missing Raw',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:missing',
+          imported_at: '2026-04-26T00:02:00.000Z',
+          tags: []
+        })
+      );
+
+      const server = createWebServer(root);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('Expected TCP server address');
+        const baseUrl = `http://127.0.0.1:${address.port}`;
+        const sources = await fetchJson<Array<{ id: string; links: { api: string } }>>(`${baseUrl}/api/sources`);
+        const raw = await fetchJson<{
+          id: string;
+          title: string;
+          body: string;
+          line_count: number;
+          links: { api: string };
+        }>(`${baseUrl}/api/sources/src-accepted/raw`);
+        const invalid = await fetchJson<{ error: string }>(`${baseUrl}/api/sources/src-inbox/raw`);
+        const missing = await fetchJson<{ error: string }>(`${baseUrl}/api/sources/src-missing/raw`);
+
+        expect(sources.status).toBe(200);
+        expect(sources.body.map((source) => source.id)).toEqual(['src-accepted', 'src-inbox', 'src-missing']);
+        expect(raw.status).toBe(200);
+        expect(raw.body).toMatchObject({
+          id: 'src-accepted',
+          title: 'Accepted Design',
+          body: 'first line\nsecond line\n',
+          line_count: 2,
+          links: { api: '/api/sources/src-accepted' }
+        });
+        expect(invalid.status).toBe(400);
+        expect(invalid.body.error).toBe('Invalid raw document path');
+        expect(missing.status).toBe(404);
+        expect(missing.body.error).toBe('Missing raw document: raw/accepted/missing.md');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
   it('serves SPA shell plus wiki, task, review, and chat endpoints', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
     const calls: Array<{
@@ -60,13 +153,27 @@ describe('createWebServer', () => {
       await saveKnowledgePage(
         root,
         createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Engineering taxonomy.',
+          source_refs: [],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-13T00:00:00.000Z'
+        }),
+        '# Engineering\n\nEngineering taxonomy.\n'
+      );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
           path: 'wiki/topics/patch-first.md',
           kind: 'topic',
           title: 'Patch First',
           summary: 'Patch-first updates keep page structure stable.',
           tags: ['patch-first'],
           source_refs: ['raw/accepted/design.md'],
-          outgoing_links: ['wiki/queries/patch-first.md'],
+          outgoing_links: ['wiki/taxonomy/engineering.md', 'wiki/queries/patch-first.md'],
           status: 'active',
           updated_at: '2026-04-13T00:00:00.000Z'
         }),
@@ -208,6 +315,7 @@ describe('createWebServer', () => {
         const discoveryApp = await fetchText(`${baseUrl}/app/discovery`);
         const readingApp = await fetchText(`${baseUrl}/app/pages/topic/patch-first`);
         const discoveryDto = await fetchJson<{ totals: { topics: number }; sections: Array<{ kind: string; items: Array<{ links: { app: string; api: string } }> }> }>(`${baseUrl}/api/discovery`);
+        const knowledgeNavigation = await fetchJson<{ roots: Array<{ title: string; kind: string; children: Array<{ title: string; kind: string; children: Array<{ kind: string; title: string; count: number }> }> }> }>(`${baseUrl}/api/knowledge/navigation`);
         const readingDto = await fetchJson<{
           page: { title: string; tags: string[]; body: string };
           navigation: {
@@ -241,6 +349,17 @@ describe('createWebServer', () => {
           app: '/app/pages/topic/patch-first',
           api: '/api/pages/topic/patch-first'
         });
+        expect(knowledgeNavigation.status).toBe(200);
+        expect(knowledgeNavigation.body.roots[0]?.title).toBe('Engineering');
+        expect(knowledgeNavigation.body.roots[0]?.children[0]).toMatchObject({
+          kind: 'topic',
+          title: 'Patch First'
+        });
+        expect(knowledgeNavigation.body.roots[0]?.children[0]?.children.map((node) => [node.kind, node.title, node.count])).toEqual([
+          ['section_group', 'Section', 1],
+          ['entity_group', 'Entity', 1],
+          ['concept_group', 'Concept', 0]
+        ]);
         expect(readingDto.status).toBe(200);
         expect(readingDto.body.page.title).toBe('Patch First');
         expect(readingDto.body.page.tags).toEqual(['patch-first']);
@@ -275,7 +394,7 @@ describe('createWebServer', () => {
         expect(chatOperations.body.settings.model).toBe('gpt-5.4');
         expect(chatOperations.body.project_env).toEqual({
           source: 'project_root_env',
-          keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
+          keys: ['RUNTIME_API_KEY']
         });
         expect(chatOperations.body.runtime_readiness).toMatchObject({
           ready: false,
@@ -433,7 +552,9 @@ describe('createWebServer', () => {
             base_url: 'http://runtime.example.invalid/v1',
             api_key_env: 'RUNTIME_API_KEY',
             project_env_contents:
-              'RUNTIME_API_KEY=web-updated-key\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\nMODEL_NOTES="operator ready"\n',
+              'RUNTIME_API_KEY=web-updated-key\n' +
+              'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n' +
+              'MODEL_NOTES="operator ready"\n',
             reasoning: true,
             context_window: 256000,
             max_tokens: 32768,
@@ -484,6 +605,9 @@ describe('createWebServer', () => {
             summary: string;
           };
         }>(`${baseUrl}/api/chat/operations`);
+        expect(await readFile(path.join(root, '.env'), 'utf8')).toContain(
+          'GRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy'
+        );
         expect(chatOperationsReady.body.runtime_readiness).toMatchObject({
           ready: true,
           status: 'ready',
@@ -529,7 +653,7 @@ describe('createWebServer', () => {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 
@@ -671,7 +795,7 @@ describe('createWebServer', () => {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
 
@@ -1374,6 +1498,496 @@ describe('createWebServer', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('starts auto knowledge insert uploads asynchronously and forwards run options', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    let launchInput: {
+      runId?: string;
+      maxPartExtractionConcurrency?: number;
+      resetKnowledgeGraphBeforeRun?: boolean;
+    } | null = null;
+    let resolveLaunch: (() => void) | null = null;
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async (input) => {
+          launchInput = {
+            runId: input.runId,
+            maxPartExtractionConcurrency: input.maxPartExtractionConcurrency,
+            resetKnowledgeGraphBeforeRun: input.resetKnowledgeGraphBeforeRun
+          };
+          await new Promise<void>((resolve) => {
+            resolveLaunch = resolve;
+          });
+          return { runId: input.runId ?? 'pipeline-missing', status: 'done' };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          ok: boolean;
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+          pipeline_status: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true,
+            maxPartExtractionConcurrency: 3,
+            resetKnowledgeGraphBeforeRun: true
+          })
+        });
+
+        expect(upload.status).toBe(201);
+        expect(upload.body.pipeline_run_id).toMatch(/^pipeline-[0-9a-f-]{36}$/u);
+        expect(upload.body.pipeline_status).toBe('running');
+        expect(launchInput).toMatchObject({
+          runId: upload.body.pipeline_run_id,
+          maxPartExtractionConcurrency: 3,
+          resetKnowledgeGraphBeforeRun: true
+        });
+        await expect(loadChatAttachment(root, upload.body.attachment.attachment_id)).resolves.toMatchObject({
+          knowledge_insert_pipeline_run_id: upload.body.pipeline_run_id
+        });
+
+        const missing = await fetchJson<{ error: string }>(`${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`);
+        expect(missing.status).toBe(404);
+        expect(missing.body.error).toBe('pipeline_not_found');
+      } finally {
+        if (resolveLaunch) {
+          const completeLaunch = resolveLaunch as () => void;
+          completeLaunch();
+        }
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records failed state when auto knowledge insert launch rejects before writing pipeline state', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async () => {
+          throw new Error('promotion failed before state');
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        const state = await waitForPipelineState<{ status: string; errors: string[] }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        expect(state.errors).toContain('promotion failed before state');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('retries a failed auto knowledge insert pipeline from its run id', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const launchedRunIds: string[] = [];
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async (input) => {
+          launchedRunIds.push(input.runId ?? 'pipeline-missing');
+          if (launchedRunIds.length === 1) {
+            throw new Error('temporary pipeline failure');
+          }
+          return {
+            runId: input.runId ?? 'pipeline-missing',
+            sourceId: `src-attachment-${input.attachmentId}`,
+            status: 'running'
+          };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'retry-brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Retry attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        await waitForPipelineState<{ status: string }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        const retry = await fetchJson<{
+          ok: boolean;
+          pipeline_run_id: string;
+          pipeline_status: string;
+          attachment: { attachment_id: string };
+        }>(`${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}/retry`, {
+          method: 'POST'
+        });
+
+        expect(retry.status).toBe(202);
+        expect(retry.body.ok).toBe(true);
+        expect(retry.body.pipeline_run_id).toMatch(/^pipeline-[0-9a-f-]{36}$/u);
+        expect(retry.body.pipeline_run_id).not.toBe(upload.body.pipeline_run_id);
+        expect(retry.body.pipeline_status).toBe('running');
+        expect(retry.body.attachment.attachment_id).toBe(upload.body.attachment.attachment_id);
+        expect(launchedRunIds).toEqual([upload.body.pipeline_run_id, retry.body.pipeline_run_id]);
+        await expect(loadChatAttachment(root, upload.body.attachment.attachment_id)).resolves.toMatchObject({
+          knowledge_insert_pipeline_run_id: retry.body.pipeline_run_id
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('lists recent knowledge insert pipelines with attachment names for UI recovery', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async () => {
+          throw new Error('recoverable launch failure');
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'recoverable.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Recoverable attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+        await waitForPipelineState<{ status: string }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        const pipelines = await fetchJson<Array<{
+          run_id: string;
+          file_name: string;
+          attachment: { attachment_id: string; file_name: string };
+          state: { runId: string; status: string };
+        }>>(`${baseUrl}/api/knowledge-insert/pipelines`);
+
+        expect(pipelines.status).toBe(200);
+        expect(pipelines.body[0]).toMatchObject({
+          run_id: upload.body.pipeline_run_id,
+          file_name: 'recoverable.txt',
+          attachment: {
+            attachment_id: upload.body.attachment.attachment_id,
+            file_name: 'recoverable.txt'
+          },
+          state: {
+            runId: upload.body.pipeline_run_id,
+            status: 'failed'
+          }
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('reports pre-existing running knowledge insert pipelines as interrupted', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const runId = 'pipeline-stale-running';
+
+    try {
+      await bootstrapProject(root);
+      const statePath = (await writeKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
+        runId,
+        sourceId: 'src-stale',
+        storageMode: 'pg-primary',
+        currentStage: 'parts.materialized',
+        status: 'running',
+        artifacts: {},
+        partProgress: {
+          total: 35,
+          completed: 8,
+          running: ['part-009'],
+          pending: 26
+        }
+      }))).absolutePath;
+      await utimes(statePath, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-01T00:00:00.000Z'));
+
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId: requestRunId }) => ({
+          runId: requestRunId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', requestRunId)
+        })
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const pipeline = await fetchJson<{
+          status: string;
+          errors: string[];
+          partProgress: { completed: number; total: number };
+        }>(`${baseUrl}/api/knowledge-insert/pipelines/${runId}`);
+
+        expect(pipeline.status).toBe(200);
+        expect(pipeline.body.status).toBe('failed');
+        expect(pipeline.body.errors.at(-1)).toContain('Pipeline was interrupted before this server process started');
+        expect(pipeline.body.partProgress).toEqual({ total: 35, completed: 8, running: ['part-009'], pending: 26 });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('forwards an existing auto knowledge insert run id into the chat attachment context', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const launchInput: { current: CapturedChatRunInput | null } = { current: null };
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-test-key\n', 'utf8');
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ userRequest, sessionId, currentUserMessage, runId }) => {
+          launchInput.current = { userRequest, sessionId, currentUserMessage };
+          return {
+            runId,
+            intent: 'query',
+            plan: [],
+            assistantText: 'attachment received',
+            toolOutcomes: [],
+            savedRunState: path.join(root, 'state', 'runs', runId)
+          };
+        },
+        runKnowledgeInsertPipelineFromAttachment: async (input) => ({
+          runId: input.runId ?? 'pipeline-missing',
+          sourceId: `src-attachment-${input.attachmentId}`,
+          status: 'running'
+        })
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          session_id: string;
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        const launched = await fetchJson<{ status: string }>(`${baseUrl}/api/chat/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userRequest: 'summarize the uploaded file',
+            sessionId: upload.body.session_id,
+            attachmentIds: [upload.body.attachment.attachment_id]
+          })
+        });
+
+        expect(launched.status).toBe(200);
+        expect(launchInput.current?.currentUserMessage).toMatchObject({
+          role: 'user',
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: `Knowledge insert pipeline run: ${upload.body.pipeline_run_id}` })
+          ])
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('updates chat session status when the runtime has already persisted a final run state', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(path.join(root, '.env'), 'RUNTIME_API_KEY=web-test-key\n', 'utf8');
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ root: projectRoot, userRequest, sessionId, runId }) => {
+          await saveRequestRunState(projectRoot, {
+            request_run: createRequestRun({
+              run_id: runId,
+              session_id: sessionId,
+              user_request: userRequest,
+              intent: 'query',
+              plan: [],
+              status: 'done',
+              result_summary: 'saved by runtime'
+            }),
+            tool_outcomes: [],
+            events: [],
+            draft_markdown: '',
+            result_markdown: 'saved by runtime',
+            changeset: null
+          });
+          return {
+            runId,
+            intent: 'query',
+            plan: [],
+            assistantText: 'saved by runtime',
+            toolOutcomes: [],
+            savedRunState: path.join(projectRoot, 'state', 'runs', runId)
+          };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const launched = await fetchJson<{ session_id: string; status: string }>(`${baseUrl}/api/chat/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userRequest: 'status should settle' })
+        });
+
+        expect([200, 202]).toContain(launched.status);
+        await expect(waitForChatSession(root, launched.body.session_id, (session) => session.status === 'done')).resolves.toMatchObject({
+          status: 'done',
+          summary: 'saved by runtime'
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function buildTopicGraphProjectionInput(slug: string) {
@@ -1610,6 +2224,42 @@ async function waitForRunState<T>(url: string, isReady: (body: T) => boolean, at
   }
 
   throw new Error(`Run did not reach expected state: ${JSON.stringify(lastBody)}`);
+}
+
+async function waitForPipelineState<T>(url: string, isReady: (body: T) => boolean, attempts = 50): Promise<T> {
+  let lastBody: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetchJson<T>(url);
+    lastBody = response.body;
+
+    if (response.status === 200 && isReady(response.body)) {
+      return response.body;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Pipeline did not reach expected state: ${JSON.stringify(lastBody)}`);
+}
+
+async function waitForChatSession(
+  root: string,
+  sessionId: string,
+  isReady: (session: Awaited<ReturnType<typeof loadChatSession>>) => boolean,
+  attempts = 50
+): Promise<Awaited<ReturnType<typeof loadChatSession>>> {
+  let lastSession: Awaited<ReturnType<typeof loadChatSession>> | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    lastSession = await loadChatSession(root, sessionId);
+    if (isReady(lastSession)) {
+      return lastSession;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Chat session did not reach expected state: ${JSON.stringify(lastSession)}`);
 }
 
 function createQueryDraftThenUpsertStream(): StreamFn {

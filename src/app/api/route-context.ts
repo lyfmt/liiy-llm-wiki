@@ -16,6 +16,14 @@ export interface ApiRouteDependencies {
     allowQueryWriteback?: boolean;
     allowLintAutoFix?: boolean;
   }) => Promise<RunRuntimeAgentResult>;
+  runKnowledgeInsertPipelineFromAttachment?: (input: {
+    root: string;
+    attachmentId: string;
+    sessionId: string;
+    runId?: string;
+    maxPartExtractionConcurrency?: number;
+    resetKnowledgeGraphBeforeRun?: boolean;
+  }) => Promise<{ runId: string; sourceId?: string; status: string }>;
 }
 
 export interface ApiRouteContext {

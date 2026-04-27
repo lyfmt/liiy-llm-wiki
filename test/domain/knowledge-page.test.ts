@@ -47,4 +47,18 @@ describe('createKnowledgePage', () => {
     expect(page.outgoing_links).toEqual(['wiki/topics/llm-wiki.md']);
     expect(page.kind).toBe('entity');
   });
+
+  it('supports taxonomy as a first-class knowledge page kind', () => {
+    const page = createKnowledgePage({
+      path: 'wiki/taxonomy/engineering.md',
+      kind: 'taxonomy',
+      title: 'Engineering',
+      source_refs: [],
+      status: 'active',
+      updated_at: '2026-04-23T00:00:00.000Z'
+    });
+
+    expect(page.kind).toBe('taxonomy');
+    expect(page.path).toBe('wiki/taxonomy/engineering.md');
+  });
 });

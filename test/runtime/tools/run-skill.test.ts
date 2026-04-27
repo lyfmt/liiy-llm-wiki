@@ -195,21 +195,7 @@ allowed-tools: read_source_manifest
       });
 
       expect(result.details.summary).toBe('ran skill knowledge-insert');
-      expect(result.details.data?.allowedTools).toEqual(
-        expect.arrayContaining([
-          'find_source_manifest',
-          'read_source_manifest',
-          'prepare_source_resource',
-          'split_resource_blocks',
-          'merge_knowledge_candidates',
-          'audit_extraction_coverage',
-          'run_subagent',
-          'read_artifact',
-          'draft_knowledge_page',
-          'apply_draft_upsert',
-          'lint_wiki'
-        ])
-      );
+      expect(result.details.data?.allowedTools).toEqual(['start_knowledge_insert_pipeline']);
     } finally {
       faux.unregister();
     }

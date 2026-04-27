@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
@@ -25,6 +25,51 @@ import { loadRequestRunState } from '../../src/storage/request-run-state-store.j
 import { saveChatSession } from '../../src/storage/chat-session-store.js';
 import { loadKnowledgeTask } from '../../src/storage/task-store.js';
 import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
+
+const { saveKnowledgeInsertGraphWrite } = vi.hoisted(() => ({
+  saveKnowledgeInsertGraphWrite: vi.fn(async () => {})
+}));
+
+vi.mock('../../src/storage/project-env-store.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/storage/project-env-store.js')>();
+  const mockedState = {
+    path: '/tmp/project.env',
+    contents: 'GRAPH_DATABASE_URL=postgres://graph.example.invalid/llm_wiki_liiy\n',
+    values: { GRAPH_DATABASE_URL: 'postgres://graph.example.invalid/llm_wiki_liiy' },
+    keys: ['GRAPH_DATABASE_URL']
+  };
+
+  return {
+    ...actual,
+    loadProjectEnv: vi.fn(async () => mockedState),
+    loadProjectEnvSync: vi.fn(() => mockedState)
+  };
+});
+
+vi.mock('../../src/storage/graph-database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/storage/graph-database.js')>();
+
+  return {
+    ...actual,
+    resolveGraphDatabaseUrl: vi.fn(() => 'postgres://graph.example.invalid/llm_wiki_liiy'),
+    getSharedGraphDatabasePool: vi.fn(() => ({
+      query: vi.fn(async () => ({ rows: [] }))
+    }))
+  };
+});
+
+vi.mock('../../src/storage/save-knowledge-insert-graph-write.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/storage/save-knowledge-insert-graph-write.js')>();
+
+  return {
+    ...actual,
+    saveKnowledgeInsertGraphWrite
+  };
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('runRuntimeAgent', () => {
   it('supports direct general replies without forcing wiki tools', async () => {
@@ -291,8 +336,10 @@ Read the provided artifacts and write outputs into the requested artifact direct
     }
   });
 
-  it('routes knowledge insertion through read_skill and run_skill while the skill orchestrates preparation, splitting, subagent work, and coverage audit', async () => {
+  it('routes knowledge insertion through the V3 pipeline launcher shim without exposing legacy internals', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-agent-'));
+    const projectKnowledgeInsertSkillPath = path.join(process.cwd(), '.agents', 'skills', 'knowledge-insert', 'SKILL.md');
+    const tempKnowledgeInsertSkillPath = path.join(root, '.agents', 'skills', 'knowledge-insert', 'SKILL.md');
     const faux = registerFauxProvider({
       api: 'test-runtime-knowledge-insert-agent',
       provider: 'test-runtime-knowledge-insert-agent',
@@ -310,22 +357,7 @@ Read the provided artifacts and write outputs into the requested artifact direct
     try {
       await bootstrapProject(root);
       await mkdir(path.join(root, '.agents', 'skills', 'knowledge-insert'), { recursive: true });
-      await writeFile(
-        path.join(root, '.agents', 'skills', 'knowledge-insert', 'SKILL.md'),
-        `---
-name: knowledge-insert
-description: Insert durable source knowledge into the governed wiki.
-allowed-tools:
-  - prepare_source_resource
-  - split_resource_blocks
-  - run_subagent
-  - audit_extraction_coverage
----
-
-# Knowledge Insert
-`,
-        'utf8'
-      );
+      await writeFile(tempKnowledgeInsertSkillPath, await readFile(projectKnowledgeInsertSkillPath, 'utf8'), 'utf8');
       await mkdir(path.join(root, '.agents', 'subagents', 'worker'), { recursive: true });
       await writeFile(
         path.join(root, '.agents', 'subagents', 'worker', 'SUBAGENT.md'),
@@ -343,7 +375,7 @@ receipt-schema: minimal-receipt-v1
       );
       await writeFile(
         path.join(root, 'raw', 'accepted', 'design.md'),
-        '# Design Patterns\n\nPatch-first systems keep durable notes.\n\nThey prefer incremental edits over rewrites.\n',
+        '# Pattern Constraints\n\nPattern constraints keep patch-first systems stable.\n',
         'utf8'
       );
       await saveSourceManifest(
@@ -351,21 +383,42 @@ receipt-schema: minimal-receipt-v1
         createSourceManifest({
           id: 'src-001',
           path: 'raw/accepted/design.md',
-          title: 'Design Patterns',
+          title: 'Pattern Constraints Source',
           type: 'markdown',
           status: 'accepted',
-          hash: 'sha256:design-patterns',
+          hash: 'sha256:pattern-constraints',
           imported_at: '2026-04-21T00:00:00.000Z'
         })
       );
-      await mkdir(path.join(root, 'state', 'artifacts', 'subagents', 'input'), { recursive: true });
+      await mkdir(path.join(root, 'wiki', 'taxonomy'), { recursive: true });
       await writeFile(
-        path.join(root, 'state', 'artifacts', 'subagents', 'input', 'blocks.json'),
-        '{\n  "blocks": [\n    { "blockId": "block-001" },\n    { "blockId": "block-002" }\n  ]\n}\n',
+        path.join(root, 'wiki', 'taxonomy', 'engineering.md'),
+        `---
+kind: "taxonomy"
+title: "Engineering"
+aliases:
+  - "Platform Engineering"
+summary: "Top-level taxonomy"
+tags:
+  - "taxonomy"
+source_refs:
+  - "raw/accepted/taxonomy.md"
+outgoing_links: []
+status: "active"
+updated_at: "2026-04-23T00:00:00.000Z"
+taxonomy_root: true
+---
+# Engineering
+
+Top-level taxonomy.
+`,
         'utf8'
       );
 
       faux.setResponses([
+        buildSingleToolCallingAssistantMessage('tool-call-find-source-1', 'find_source_manifest', {
+          query: 'pattern constraints source'
+        }),
         buildSingleToolCallingAssistantMessage('tool-call-prepare-source-1', 'prepare_source_resource', {
           manifestId: 'src-001',
           rawPath: 'raw/accepted/design.md',
@@ -375,29 +428,68 @@ receipt-schema: minimal-receipt-v1
           resourceArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json',
           outputArtifact: 'state/artifacts/knowledge-insert/run-001/blocks.json'
         }),
+        buildSingleToolCallingAssistantMessage('tool-call-split-batches-1', 'split_block_batches', {
+          blocksArtifact: 'state/artifacts/knowledge-insert/run-001/blocks.json',
+          batchSize: 20,
+          batchRunIdPrefix: 'run-001--worker-',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/block-batches.json'
+        }),
         buildSingleToolCallingAssistantMessage('tool-call-run-subagent-knowledge-1', 'run_subagent', {
           profile: 'worker',
-          taskPrompt: 'Extract grounded knowledge candidates and write merged candidates.',
-          inputArtifacts: ['state/artifacts/subagents/input/blocks.json'],
-          outputDir: 'state/artifacts/subagents/run-001--writer-1',
+          taskPrompt: 'Extract grounded knowledge candidates and write a batch extraction artifact.',
+          inputArtifacts: ['state/artifacts/subagents/run-001--worker-01/input/blocks.json'],
+          outputDir: 'state/artifacts/subagents/run-001--worker-01',
           requestedTools: ['read_artifact', 'write_artifact']
         }),
         buildSingleToolCallingAssistantMessage('tool-call-subagent-read-knowledge-1', 'read_artifact', {
-          artifactPath: 'state/artifacts/subagents/input/blocks.json'
+          artifactPath: 'state/artifacts/subagents/run-001--worker-01/input/blocks.json'
         }),
         buildSingleToolCallingAssistantMessage('tool-call-subagent-write-knowledge-1', 'write_artifact', {
-          artifactPath: 'state/artifacts/subagents/run-001--writer-1/merged.json',
+          artifactPath: 'state/artifacts/subagents/run-001--worker-01/extraction.json',
           content: JSON.stringify(
             {
               entities: [],
-              assertions: [],
+              assertions: [
+                {
+                  assertionId: 'assert-001',
+                  text: 'Pattern constraints keep patch-first systems stable.',
+                  sectionCandidateId: 'sec-candidate-001',
+                  evidenceAnchorIds: ['anchor-001', 'anchor-002']
+                }
+              ],
               relations: [],
               evidenceAnchors: [
-                { anchorId: 'anchor-001', blockId: 'block-001', quote: 'Patch-first systems keep durable notes.' },
-                { anchorId: 'anchor-002', blockId: 'block-001', quote: 'Durable notes stay grounded.' },
-                { anchorId: 'anchor-003', blockId: 'block-002', quote: 'They prefer incremental edits over rewrites.' },
-                { anchorId: 'anchor-004', blockId: 'block-002', quote: 'Incremental edits stay stable.' }
-              ]
+                {
+                  anchorId: 'anchor-001',
+                  blockId: 'block-001',
+                  quote: 'Pattern constraints keep patch-first systems stable.',
+                  title: 'Pattern Constraints',
+                  locator: 'h1:Pattern Constraints#p1',
+                  order: 1,
+                  heading_path: ['Pattern Constraints']
+                },
+                {
+                  anchorId: 'anchor-002',
+                  blockId: 'block-001',
+                  quote: 'Stable constraints keep the topic grounded.',
+                  title: 'Pattern Constraints',
+                  locator: 'h1:Pattern Constraints#p1',
+                  order: 2,
+                  heading_path: ['Pattern Constraints']
+                }
+              ],
+              sectionCandidates: [
+                {
+                  sectionCandidateId: 'sec-candidate-001',
+                  title: 'Pattern Constraints',
+                  summary: 'Pattern constraints keep patch-first systems stable.',
+                  body: 'Pattern constraints keep patch-first systems stable.',
+                  assertionIds: ['assert-001'],
+                  evidenceAnchorIds: ['anchor-001', 'anchor-002'],
+                  topicHints: []
+                }
+              ],
+              topicHints: []
             },
             null,
             2
@@ -406,17 +498,96 @@ receipt-schema: minimal-receipt-v1
         fauxAssistantMessage(
           JSON.stringify({
             status: 'done',
-            summary: 'Worker wrote merged candidates for the prepared source.',
-            outputArtifacts: ['state/artifacts/subagents/run-001--writer-1/merged.json']
+            summary: 'Worker wrote extracted knowledge for the prepared source.',
+            outputArtifacts: ['state/artifacts/subagents/run-001--worker-01/extraction.json']
           })
         ),
+        buildSingleToolCallingAssistantMessage('tool-call-merge-extracted-1', 'merge_extracted_knowledge', {
+          inputArtifacts: ['state/artifacts/subagents/run-001--worker-01/extraction.json'],
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json'
+        }),
         buildSingleToolCallingAssistantMessage('tool-call-audit-coverage-1', 'audit_extraction_coverage', {
           blocksArtifact: 'state/artifacts/knowledge-insert/run-001/blocks.json',
-          mergedCandidatesArtifact: 'state/artifacts/subagents/run-001--writer-1/merged.json',
+          mergedCandidatesArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json',
           outputArtifact: 'state/artifacts/knowledge-insert/run-001/coverage.json'
         }),
+        buildSingleToolCallingAssistantMessage('tool-call-merge-sections-1', 'merge_section_candidates', {
+          mergedKnowledgeArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/sections.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-build-topic-catalog-1', 'build_topic_catalog', {
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/topic-catalog.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-build-taxonomy-catalog-1', 'build_taxonomy_catalog', {
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/taxonomy-catalog.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-resolve-source-topics-1', 'resolve_source_topics', {
+          preparedResourceArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json',
+          mergedKnowledgeArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json',
+          sectionsArtifact: 'state/artifacts/knowledge-insert/run-001/sections.json',
+          topicCatalogArtifact: 'state/artifacts/knowledge-insert/run-001/topic-catalog.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/source-topics.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-assign-sections-1', 'assign_sections_to_topics', {
+          sourceTopicsArtifact: 'state/artifacts/knowledge-insert/run-001/source-topics.json',
+          sectionsArtifact: 'state/artifacts/knowledge-insert/run-001/sections.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/hosted-sections.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-resolve-topic-taxonomy-1', 'resolve_topic_taxonomy', {
+          sourceTopicsArtifact: 'state/artifacts/knowledge-insert/run-001/source-topics.json',
+          taxonomyCatalogArtifact: 'state/artifacts/knowledge-insert/run-001/taxonomy-catalog.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/topic-taxonomy.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-audit-topic-hosting-1', 'audit_topic_hosting', {
+          hostedSectionsArtifact: 'state/artifacts/knowledge-insert/run-001/hosted-sections.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/topic-host-audit.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-audit-taxonomy-hosting-1', 'audit_taxonomy_hosting', {
+          topicTaxonomyArtifact: 'state/artifacts/knowledge-insert/run-001/topic-taxonomy.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/taxonomy-host-audit.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-build-plan-1', 'build_topic_insertion_plan', {
+          hostedSectionsArtifact: 'state/artifacts/knowledge-insert/run-001/hosted-sections.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/topic-plan.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-draft-topic-pages-1', 'draft_topic_pages_from_plan', {
+          topicInsertionPlanArtifact: 'state/artifacts/knowledge-insert/run-001/topic-plan.json',
+          topicCatalogArtifact: 'state/artifacts/knowledge-insert/run-001/topic-catalog.json',
+          sectionsArtifact: 'state/artifacts/knowledge-insert/run-001/sections.json',
+          mergedKnowledgeArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json',
+          preparedResourceArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/topic-drafts.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-upsert-knowledge-graph-1', 'upsert_knowledge_insert_graph', {
+          topicTaxonomyArtifact: 'state/artifacts/knowledge-insert/run-001/topic-taxonomy.json',
+          topicDraftsArtifact: 'state/artifacts/knowledge-insert/run-001/topic-drafts.json',
+          sectionsArtifact: 'state/artifacts/knowledge-insert/run-001/sections.json',
+          mergedKnowledgeArtifact: 'state/artifacts/knowledge-insert/run-001/merged.json',
+          preparedResourceArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json',
+          outputArtifact: 'state/artifacts/knowledge-insert/run-001/graph-write.json'
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-apply-draft-upsert-1', 'apply_draft_upsert', {
+          targetPath: 'wiki/topics/pattern-constraints.md',
+          upsertArguments: {
+            kind: 'topic',
+            slug: 'pattern-constraints',
+            title: 'Pattern Constraints',
+            aliases: [],
+            summary: 'Pattern constraints keep patch-first systems stable.',
+            tags: [],
+            source_refs: ['raw/accepted/design.md'],
+            outgoing_links: [],
+            status: 'active',
+            updated_at: '2026-04-21T00:00:00.000Z',
+            body:
+              '# Pattern Constraints\n\n## Pattern Constraints\n\nPattern constraints keep patch-first systems stable.\n\nSource refs:\n- raw/accepted/design.md\n\nEvidence anchors:\n- anchor-001 (block-001): "Pattern constraints keep patch-first systems stable."\n- anchor-002 (block-001): "Stable constraints keep the topic grounded."\n\nEvidence summaries:\n- Pattern constraints keep patch-first systems stable.\n\nLocators:\n- raw/accepted/design.md#block-001',
+            rationale: 'create deterministic topic draft from insertion plan src-001'
+          }
+        }),
+        buildSingleToolCallingAssistantMessage('tool-call-lint-wiki-1', 'lint_wiki', {}),
         fauxAssistantMessage('Knowledge insert skill completed for src-001.')
       ]);
+      faux.setResponses([fauxAssistantMessage('Knowledge insert now starts the V3 pipeline launcher only.')]);
 
       const model = faux.getModel('gpt-5.4');
 
@@ -434,18 +605,20 @@ receipt-schema: minimal-receipt-v1
           expect(context.systemPrompt).toContain('knowledge-insert');
           expect(context.tools?.map((tool) => tool.name)).toContain('read_skill');
           expect(context.tools?.map((tool) => tool.name)).toContain('run_skill');
+          expect(context.tools?.map((tool) => tool.name)).toContain('start_knowledge_insert_pipeline');
           expect(context.tools?.map((tool) => tool.name)).not.toContain('prepare_source_resource');
           expect(context.tools?.map((tool) => tool.name)).not.toContain('split_resource_blocks');
         })
       });
 
       expect(result.toolOutcomes.map((outcome) => outcome.toolName)).toEqual(['read_skill', 'run_skill']);
-      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('prepare_source_resource');
-      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('split_resource_blocks');
-      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('run_subagent');
-      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('audit_extraction_coverage');
-      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('coverage audit passed');
-      expect(result.assistantText).toContain('Knowledge insert skill completed for src-001.');
+      expect(result.toolOutcomes[1]?.resultMarkdown).toContain('Allowed tools: start_knowledge_insert_pipeline');
+      expect(result.toolOutcomes[1]?.resultMarkdown).not.toContain('prepare_source_resource');
+      expect(result.toolOutcomes[1]?.resultMarkdown).not.toContain('resolve_source_topics');
+      expect(result.toolOutcomes[1]?.resultMarkdown).not.toContain('upsert_knowledge_insert_graph');
+      expect(result.assistantText).toContain('Knowledge insert now starts the V3 pipeline launcher only.');
+      expect(await readFile(tempKnowledgeInsertSkillPath, 'utf8')).toBe(await readFile(projectKnowledgeInsertSkillPath, 'utf8'));
+      expect(saveKnowledgeInsertGraphWrite).not.toHaveBeenCalled();
     } finally {
       faux.unregister();
       await rm(root, { recursive: true, force: true });

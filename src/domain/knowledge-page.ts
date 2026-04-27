@@ -1,4 +1,4 @@
-export type KnowledgePageKind = 'source' | 'entity' | 'topic' | 'query';
+export type KnowledgePageKind = 'source' | 'entity' | 'taxonomy' | 'topic' | 'query';
 
 export interface KnowledgePage {
   path: string;

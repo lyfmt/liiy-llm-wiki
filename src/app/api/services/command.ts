@@ -90,7 +90,12 @@ export function parseChatAttachmentUploadRequestDto(value: Record<string, unknow
     ...(sessionId === undefined ? {} : { sessionId }),
     fileName: readString(value, 'fileName'),
     mimeType: readString(value, 'mimeType'),
-    dataBase64: readString(value, 'dataBase64')
+    dataBase64: readString(value, 'dataBase64'),
+    ...(typeof value.autoKnowledgeInsert === 'boolean' ? { autoKnowledgeInsert: value.autoKnowledgeInsert } : {}),
+    ...(typeof value.maxPartExtractionConcurrency === 'number'
+      ? { maxPartExtractionConcurrency: readOptionalPositiveInteger(value, 'maxPartExtractionConcurrency') }
+      : {}),
+    ...(typeof value.resetKnowledgeGraphBeforeRun === 'boolean' ? { resetKnowledgeGraphBeforeRun: value.resetKnowledgeGraphBeforeRun } : {})
   };
 }
 

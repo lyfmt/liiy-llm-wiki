@@ -1,0 +1,306 @@
+{
+  "version": 1,
+  "title": "Wiki 插入链路：当前流程 vs 目标流程",
+  "type": "engineering-diagram",
+  "source": "generated",
+  "profile": "engineering-review",
+  "theme": "tech-blue",
+  "layout": "horizontal",
+  "counts": {
+    "nodes": 21,
+    "edges": 21,
+    "modules": 2
+  },
+  "nodes": [
+    {
+      "id": "c_upload",
+      "label": "上传 source / attachment",
+      "type": "terminal",
+      "module": "current_flow",
+      "size": "medium"
+    },
+    {
+      "id": "c_source",
+      "label": "accepted source\ncreate_source_from_attachment",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_blocks",
+      "label": "prepare resource\nsplit blocks\nsplit batches",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_worker",
+      "label": "worker extraction\nentities / assertions / relations\nevidenceAnchors / sectionCandidates / topicHints",
+      "type": "process",
+      "module": "current_flow",
+      "size": "xl"
+    },
+    {
+      "id": "c_merge",
+      "label": "merge_extracted_knowledge\naudit_extraction_coverage",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_sections",
+      "label": "merge_section_candidates\n生成 normalized sections",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_hosts",
+      "label": "resolve_topic_hosts\n对每个 section 做 host decision",
+      "type": "process",
+      "module": "current_flow",
+      "size": "xl"
+    },
+    {
+      "id": "c_taxonomy_skip",
+      "label": "taxonomy skipped\n当前不经过\nsource -> topic -> taxonomy 规划",
+      "type": "document",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_plan",
+      "label": "build_topic_insertion_plan",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_write",
+      "label": "draft / review / apply\ntopic -> sections[] 写回 wiki",
+      "type": "process",
+      "module": "current_flow",
+      "size": "large"
+    },
+    {
+      "id": "c_backread",
+      "label": "回读\nread_wiki_page\nread_raw_source",
+      "type": "terminal",
+      "module": "current_flow",
+      "size": "medium"
+    },
+    {
+      "id": "t_upload",
+      "label": "上传 source / attachment",
+      "type": "terminal",
+      "module": "target_flow",
+      "size": "medium"
+    },
+    {
+      "id": "t_overview",
+      "label": "source overview\n先看整份 source 的主题范围、上下文、scope",
+      "type": "process",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_topic",
+      "label": "topic 决策\nreuse existing topic\nor create new topic",
+      "type": "decision",
+      "module": "target_flow",
+      "size": "large"
+    },
+    {
+      "id": "t_taxonomy",
+      "label": "taxonomy 决策\nroot -> new node / merge / leaf attach",
+      "type": "decision",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_sections",
+      "label": "按正文切出 sections\n保留贴源 body\n不是只做 summary",
+      "type": "process",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_attach",
+      "label": "section attach\n挂到 topic / taxonomy / parent section",
+      "type": "process",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_graph",
+      "label": "graph semantic write\nentity / concept / assertion / relation",
+      "type": "process",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_provenance",
+      "label": "source anchors\nlocator / excerpt / source path\n支持 section / assertion 回源",
+      "type": "process",
+      "module": "target_flow",
+      "size": "xl"
+    },
+    {
+      "id": "t_write",
+      "label": "writer / reviewer\n保持 topic -> sections 结构写回",
+      "type": "process",
+      "module": "target_flow",
+      "size": "large"
+    },
+    {
+      "id": "t_backread",
+      "label": "agent 读路径\ntaxonomy -> topic -> section -> evidence -> source",
+      "type": "terminal",
+      "module": "target_flow",
+      "size": "xl"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "c_upload",
+      "to": "c_source",
+      "type": "primary"
+    },
+    {
+      "id": "edge-2",
+      "from": "c_source",
+      "to": "c_blocks",
+      "type": "primary"
+    },
+    {
+      "id": "edge-3",
+      "from": "c_blocks",
+      "to": "c_worker",
+      "type": "primary"
+    },
+    {
+      "id": "edge-4",
+      "from": "c_worker",
+      "to": "c_merge",
+      "type": "primary"
+    },
+    {
+      "id": "edge-5",
+      "from": "c_merge",
+      "to": "c_sections",
+      "type": "primary"
+    },
+    {
+      "id": "edge-6",
+      "from": "c_sections",
+      "to": "c_hosts",
+      "type": "primary",
+      "label": "当前 host resolve 单位 = section"
+    },
+    {
+      "id": "edge-7",
+      "from": "c_hosts",
+      "to": "c_taxonomy_skip",
+      "type": "optional",
+      "label": "taxonomy 缺失"
+    },
+    {
+      "id": "edge-8",
+      "from": "c_hosts",
+      "to": "c_plan",
+      "type": "primary"
+    },
+    {
+      "id": "edge-9",
+      "from": "c_plan",
+      "to": "c_write",
+      "type": "primary"
+    },
+    {
+      "id": "edge-10",
+      "from": "c_write",
+      "to": "c_backread",
+      "type": "primary"
+    },
+    {
+      "id": "edge-11",
+      "from": "t_upload",
+      "to": "t_overview",
+      "type": "primary"
+    },
+    {
+      "id": "edge-12",
+      "from": "t_overview",
+      "to": "t_topic",
+      "type": "primary",
+      "label": "先从 source 做主题判断"
+    },
+    {
+      "id": "edge-13",
+      "from": "t_topic",
+      "to": "t_taxonomy",
+      "type": "primary"
+    },
+    {
+      "id": "edge-14",
+      "from": "t_taxonomy",
+      "to": "t_sections",
+      "type": "primary"
+    },
+    {
+      "id": "edge-15",
+      "from": "t_sections",
+      "to": "t_attach",
+      "type": "primary"
+    },
+    {
+      "id": "edge-16",
+      "from": "t_attach",
+      "to": "t_graph",
+      "type": "primary"
+    },
+    {
+      "id": "edge-17",
+      "from": "t_sections",
+      "to": "t_provenance",
+      "type": "data"
+    },
+    {
+      "id": "edge-18",
+      "from": "t_graph",
+      "to": "t_provenance",
+      "type": "data"
+    },
+    {
+      "id": "edge-19",
+      "from": "t_graph",
+      "to": "t_write",
+      "type": "primary"
+    },
+    {
+      "id": "edge-20",
+      "from": "t_provenance",
+      "to": "t_write",
+      "type": "primary"
+    },
+    {
+      "id": "edge-21",
+      "from": "t_write",
+      "to": "t_backread",
+      "type": "primary"
+    }
+  ],
+  "modules": [
+    {
+      "id": "current_flow",
+      "label": "当前 knowledge-insert 流程",
+      "color": "#DCFCE7"
+    },
+    {
+      "id": "target_flow",
+      "label": "目标 source-first 流程",
+      "color": "#DBEAFE"
+    }
+  ]
+}

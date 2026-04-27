@@ -30,12 +30,20 @@ export type {
 } from './subagents/types.js';
 export { createDraftKnowledgePageTool } from './tools/draft-knowledge-page.js';
 export type { DraftKnowledgePageParameters } from './tools/draft-knowledge-page.js';
+export { createDraftTopicPagesFromPlanTool } from './tools/draft-topic-pages-from-plan.js';
+export type { DraftTopicPagesFromPlanParameters } from './tools/draft-topic-pages-from-plan.js';
 export { createDraftQueryPageTool } from './tools/draft-query-page.js';
 export type { DraftQueryPageParameters } from './tools/draft-query-page.js';
 export { createApplyDraftUpsertTool } from './tools/apply-draft-upsert.js';
 export type { ApplyDraftUpsertParameters } from './tools/apply-draft-upsert.js';
 export { createCreateSourceFromAttachmentTool } from './tools/create-source-from-attachment.js';
 export type { CreateSourceFromAttachmentParameters } from './tools/create-source-from-attachment.js';
+export { createStartKnowledgeInsertPipelineTool } from './tools/start-knowledge-insert-pipeline.js';
+export type {
+  CreateStartKnowledgeInsertPipelineToolOptions,
+  StartKnowledgeInsertPipelineParameters,
+  StartKnowledgeInsertPipelineResult
+} from './tools/start-knowledge-insert-pipeline.js';
 export { createFindSourceManifestTool } from './tools/find-source-manifest.js';
 export type { FindSourceManifestParameters } from './tools/find-source-manifest.js';
 export { createIngestSourceTool } from './tools/ingest-source.js';
@@ -60,19 +68,92 @@ export { createPrepareSourceResourceTool } from './tools/prepare-source-resource
 export type { PrepareSourceResourceParameters, PreparedSourceResourceArtifact } from './tools/prepare-source-resource.js';
 export { createSplitResourceBlocksTool } from './tools/split-resource-blocks.js';
 export type { SplitResourceBlocksParameters, KnowledgeResourceBlock, SplitResourceBlocksArtifact } from './tools/split-resource-blocks.js';
-export { createMergeKnowledgeCandidatesTool } from './tools/merge-knowledge-candidates.js';
+export { createSplitBlockBatchesTool } from './tools/split-block-batches.js';
+export type { SplitBlockBatchesParameters, SplitBlockBatchPlanEntry, SplitBlockBatchesArtifact } from './tools/split-block-batches.js';
+export { createMergeExtractedKnowledgeTool } from './tools/merge-extracted-knowledge.js';
 export type {
-  MergeKnowledgeCandidatesParameters,
+  MergeExtractedKnowledgeParameters,
   KnowledgeEntityCandidate,
   KnowledgeAssertionCandidate,
   KnowledgeRelationCandidate,
   KnowledgeEvidenceAnchor,
-  MergedKnowledgeCandidatesArtifact
-} from './tools/merge-knowledge-candidates.js';
+  KnowledgeSectionCandidate,
+  KnowledgeTopicHint,
+  MergedExtractedKnowledgeArtifact
+} from './tools/merge-extracted-knowledge.js';
+export { createMergeSectionCandidatesTool } from './tools/merge-section-candidates.js';
+export type {
+  MergeSectionCandidatesParameters,
+  NormalizedKnowledgeSection,
+  MergedSectionCandidatesArtifact
+} from './tools/merge-section-candidates.js';
+export { createResolveSourceTopicsTool } from './tools/resolve-source-topics.js';
+export type {
+  ResolveSourceTopicsParameters,
+  SourceTopicDecision,
+  SourceTopicPlanEntry,
+  SourceTopicPlanningArtifact
+} from './tools/resolve-source-topics.js';
+export { createAssignSectionsToTopicsTool } from './tools/assign-sections-to-topics.js';
+export type {
+  AssignSectionsToTopicsParameters,
+  AttachedKnowledgeSection,
+  AssignedSectionsArtifact
+} from './tools/assign-sections-to-topics.js';
+export { createBuildTopicCatalogTool } from './tools/build-topic-catalog.js';
+export type {
+  BuildTopicCatalogParameters,
+  BuiltTopicCatalogEntry,
+  TopicCatalogArtifact
+} from './tools/build-topic-catalog.js';
+export { createBuildTaxonomyCatalogTool } from './tools/build-taxonomy-catalog.js';
+export type {
+  BuildTaxonomyCatalogParameters,
+  BuiltTaxonomyCatalogEntry,
+  TaxonomyCatalogArtifact
+} from './tools/build-taxonomy-catalog.js';
+export { createResolveTopicTaxonomyTool } from './tools/resolve-topic-taxonomy.js';
+export type {
+  ResolveTopicTaxonomyParameters,
+  TopicTaxonomyAction,
+  TopicTaxonomyPlacement,
+  TopicTaxonomyPlanEntry,
+  TopicTaxonomyPlanningArtifact
+} from './tools/resolve-topic-taxonomy.js';
+export { createAuditTaxonomyHostingTool } from './tools/audit-taxonomy-hosting.js';
+export type { AuditTaxonomyHostingParameters, TaxonomyHostingAuditArtifact } from './tools/audit-taxonomy-hosting.js';
+export { createResolveTopicHostsTool } from './tools/resolve-topic-hosts.js';
+export type {
+  ResolveTopicHostsParameters,
+  TopicCatalogEntry,
+  HostedKnowledgeSection,
+  TopicHostingArtifact
+} from './tools/resolve-topic-hosts.js';
+export { createAuditTopicHostingTool } from './tools/audit-topic-hosting.js';
+export type { AuditTopicHostingParameters, TopicHostingAuditArtifact } from './tools/audit-topic-hosting.js';
+export { createBuildTopicInsertionPlanTool } from './tools/build-topic-insertion-plan.js';
+export type {
+  BuildTopicInsertionPlanParameters,
+  TopicInsertionPlanSection,
+  TopicInsertionPlanTopic,
+  TopicInsertionPlanArtifact
+} from './tools/build-topic-insertion-plan.js';
+export { renderTopicDraftsFromPlan } from '../flows/wiki/render-topic-drafts-from-plan.js';
+export type {
+  ExistingTopicPageDraftInput,
+  ExistingTopicPagesArtifact,
+  TopicDraftUpsertArguments,
+  RenderedTopicDraftSection,
+  RenderedTopicDraft,
+  RenderTopicDraftsArtifact,
+  RenderTopicDraftsFromPlanInput
+} from '../flows/wiki/render-topic-drafts-from-plan.js';
 export { createAuditExtractionCoverageTool } from './tools/audit-extraction-coverage.js';
 export type { AuditExtractionCoverageParameters, ExtractionCoverageAuditArtifact } from './tools/audit-extraction-coverage.js';
 export { createReadArtifactTool } from './tools/read-artifact.js';
 export type { ReadArtifactParameters } from './tools/read-artifact.js';
+export { createUpsertKnowledgeInsertGraphTool } from './tools/upsert-knowledge-insert-graph.js';
+export type { UpsertKnowledgeInsertGraphParameters } from './tools/upsert-knowledge-insert-graph.js';
 export { createUpsertKnowledgePageTool } from './tools/upsert-knowledge-page.js';
 export type { UpsertKnowledgePageParameters } from './tools/upsert-knowledge-page.js';
 export { createQueryWikiTool } from './tools/query-wiki.js';

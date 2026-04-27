@@ -1,6 +1,7 @@
-import { Cpu, Home, RefreshCw, Save, Server, Shield, ShieldCheck, Key } from 'lucide-react';
+import { Cpu, RefreshCw, Save, Server, Key } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { ZipTopNav } from '@/components/layout/template-primitives';
 import { getChatModels, getChatSettings, updateChatSettings } from '@/lib/api';
 import type { ChatSettingsUpdateRequest, ChatModelsResponse } from '@/lib/types';
 
@@ -221,44 +222,49 @@ export function ConsolePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#FFFFFF] to-[#F0F8FF] flex font-sans">
-      <aside className="w-[280px] bg-white/80 backdrop-blur-md h-screen fixed left-0 top-0 p-6 flex flex-col border-r border-white/50 shadow-[4px_0_24px_rgba(102,204,255,0.05)] z-10">
-        <a href="/app" className="flex items-center gap-2 text-[#5D6D7E] hover:text-[#66CCFF] font-bold mb-10 transition-colors w-fit">
-          <Home size={18} /> 返回主页
-        </a>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <ZipTopNav active="settings" />
 
-        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <Shield size={14} /> 后台管理
-        </h4>
-
-        <div className="mt-auto flex flex-col items-center justify-center text-[#5D6D7E] opacity-50">
-          <ShieldCheck size={48} strokeWidth={1.5} className="mb-2" />
-          <span className="text-xs font-bold tracking-widest">SYSTEM ADMIN</span>
-        </div>
-      </aside>
-
-      <main className="ml-[280px] flex-1 p-12 pb-32 max-w-3xl">
-        <header className="mb-10">
-          <h1 className="text-4xl font-extrabold text-[#1C2833] mb-2 tracking-tight">系统核心设置</h1>
-          <p className="text-[#5D6D7E] text-md">配置您的 LLM 服务商信息与 API 访问密钥。</p>
+      <main className="mx-auto max-w-3xl px-6 py-10 pb-24">
+        <header className="mb-8">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-brand">Settings</p>
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">模型访问配置</h1>
+          <p className="mt-3 text-sm leading-7 text-slate-600">配置 LLM 服务商、模型、API 端点与项目密钥。</p>
         </header>
 
-        <div className="bg-white/80 backdrop-blur-sm p-8 rounded-[24px] shadow-[0_8px_30px_rgba(102,204,255,0.1)] border border-white space-y-8">
-          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
-            <div className="w-10 h-10 rounded-full bg-[#E0F6FF] text-[#66CCFF] flex items-center justify-center">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
+          }}
+          className="space-y-8 rounded-[8px] border border-slate-200 bg-white p-6 shadow-sm md:p-8"
+        >
+          <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-blue-50 text-brand">
               <Cpu size={20} />
             </div>
-            <h2 className="text-2xl font-bold text-[#1C2833]">模型访问配置</h2>
+            <h2 className="text-xl font-bold text-slate-900">运行时配置</h2>
           </div>
 
           {loading ? (
-            <div className="text-sm text-[#5D6D7E]">正在加载配置…</div>
+            <div className="text-sm text-slate-500">正在加载配置…</div>
           ) : (
             <div className="space-y-8">
+              <input
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+                name="username"
+                autoComplete="username"
+                value={provider}
+                readOnly
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-bold text-[#1C2833] mb-2">提供商 (Provider)</label>
+                  <label htmlFor="chat-provider" className="mb-2 block text-sm font-bold text-slate-900">提供商</label>
                   <select
+                    id="chat-provider"
+                    name="provider"
                     value={formState.provider || ''}
                     onChange={(event) => {
                       const newProvider = event.target.value;
@@ -290,7 +296,7 @@ export function ConsolePage() {
                         };
                       });
                     }}
-                    className="w-full bg-[#F9FCFF] text-[#1C2833] rounded-[12px] px-4 py-3 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-[#66CCFF]/50 transition-all appearance-none cursor-pointer"
+                    className="w-full cursor-pointer appearance-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 transition-colors focus:border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
                   >
                     {modelsResponse?.providers.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -301,10 +307,13 @@ export function ConsolePage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-[#1C2833] mb-2">API 密钥 (API Key)</label>
+                  <label htmlFor="chat-api-key" className="mb-2 block text-sm font-bold text-slate-900">API 密钥</label>
                   <div className="relative">
                     <input
+                      id="chat-api-key"
+                      name="api_key"
                       type="password"
+                      autoComplete="new-password"
                       value={apiKey}
                       onChange={(event) =>
                         setApiKeyDrafts((current) => ({
@@ -313,17 +322,19 @@ export function ConsolePage() {
                         }))
                       }
                       placeholder="sk-..."
-                      className="w-full bg-[#F9FCFF] text-[#1C2833] placeholder-gray-400 rounded-[12px] px-4 py-3 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-[#66CCFF]/50 transition-all pr-10"
+                      className="w-full rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-slate-900 placeholder-slate-400 transition-colors focus:border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
                     />
-                    <Key size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" />
+                    <Key size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-[#1C2833] mb-2">模型选择 (Model)</label>
+                <label htmlFor="chat-model" className="mb-2 block text-sm font-bold text-slate-900">模型</label>
                 <div className="flex gap-4 items-center">
                   <select
+                    id="chat-model"
+                    name="model"
                     value={formState.model ?? ''}
                     onChange={(event) => {
                       const newModelId = event.target.value;
@@ -354,7 +365,7 @@ export function ConsolePage() {
                         };
                       });
                     }}
-                    className="flex-1 bg-[#F9FCFF] text-[#1C2833] rounded-[12px] px-4 py-3 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-[#66CCFF]/50 transition-all appearance-none cursor-pointer"
+                    className="flex-1 cursor-pointer appearance-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 transition-colors focus:border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
                   >
                     {modelOptions.map((option) => (
                       <option key={option} value={option}>
@@ -366,7 +377,7 @@ export function ConsolePage() {
                     type="button"
                     onClick={() => void loadAll({ discover: true })}
                     disabled={discovering || loading}
-                    className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-[#66CCFF] border border-[#66CCFF]/30 rounded-[12px] font-bold text-sm hover:bg-[#F0F8FF] transition-colors whitespace-nowrap disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border border-blue-100 bg-white px-5 py-3 text-sm font-bold text-brand transition-colors hover:bg-blue-50 disabled:opacity-50"
                   >
                     <RefreshCw size={16} className={discovering ? 'animate-spin' : ''} /> {discovering ? '正在探测...' : '探测并刷新模型'}
                   </button>
@@ -377,38 +388,39 @@ export function ConsolePage() {
                 <button
                   type="button"
                   onClick={() => setShowEndpointModal(true)}
-                  className="text-sm text-[#66CCFF] hover:text-[#4DB8FF] flex items-center gap-2 font-medium transition-colors"
+                  className="flex items-center gap-2 text-sm font-medium text-brand transition-colors hover:text-blue-700"
                 >
                   <Server size={14} />
-                  {formState.base_url?.trim() ? `自定义端点: ${formState.base_url}` : '高级设置：配置自定义 API 端点 (Base URL)'}
+                  {formState.base_url?.trim() ? `自定义端点: ${formState.base_url}` : '配置自定义 API 端点'}
                 </button>
               </div>
 
-              {error ? <div className="p-4 bg-red-50 border border-red-100 rounded-[12px] text-sm text-red-600">{error}</div> : null}
-              {message ? <div className="p-4 bg-[#F0F8FF] border border-[#66CCFF]/20 rounded-[12px] text-sm text-[#66CCFF] font-bold">{message}</div> : null}
+              {error ? <div className="rounded-[8px] border border-red-100 bg-red-50 p-4 text-sm text-red-600">{error}</div> : null}
+              {message ? <div className="rounded-[8px] border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-brand">{message}</div> : null}
             </div>
           )}
 
-          <div className="mt-10 pt-6 border-t border-gray-100 flex justify-end">
+          <div className="mt-10 flex justify-end border-t border-slate-100 pt-6">
             <button
-              type="button"
-              onClick={() => void handleSave()}
+              type="submit"
               disabled={saving || loading}
-              className="px-10 py-3 bg-[#66CCFF] text-white rounded-[12px] font-bold text-sm shadow-[0_8px_20px_rgba(102,204,255,0.3)] hover:bg-[#4DB8FF] transition-all hover:scale-105 disabled:opacity-60 flex items-center gap-2"
+              className="flex items-center gap-2 rounded-[8px] bg-brand px-8 py-3 text-sm font-bold text-white shadow-brand-soft transition-colors hover:bg-blue-700 disabled:opacity-60"
             >
               <Save size={16} /> {saving ? '保存中…' : '保存设置'}
             </button>
           </div>
-        </div>
+        </form>
       </main>
 
       {showEndpointModal ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1C2833]/20 backdrop-blur-sm transition-opacity">
-          <div className="bg-white p-6 rounded-[24px] shadow-2xl border border-white/50 w-full max-w-md">
-            <h3 className="text-lg font-bold text-[#1C2833] mb-4 flex items-center gap-2">
-              <Server size={18} className="text-[#66CCFF]" /> 自定义 API 端点
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-md rounded-[8px] border border-slate-200 bg-white p-6 shadow-2xl">
+            <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Server size={18} className="text-brand" /> 自定义 API 端点
             </h3>
             <input
+              id="chat-base-url"
+              name="base_url"
               type="text"
               value={formState.base_url ?? ''}
               onChange={(event) => {
@@ -416,11 +428,11 @@ export function ConsolePage() {
                 setFormState((current) => ({ ...current, base_url: event.target.value }));
               }}
               placeholder="例如: https://api.openai.com/v1"
-              className="w-full bg-[#F4F7FA] text-[#1C2833] rounded-[12px] px-4 py-3 border border-transparent focus:outline-none focus:ring-2 focus:ring-[#66CCFF]/50 transition-all mb-8"
+              className="mb-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 transition-colors focus:border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
             />
             <div className="flex justify-end gap-3">
-              <button onClick={() => setShowEndpointModal(false)} className="px-5 py-2.5 text-[#5D6D7E] font-bold text-sm hover:text-[#1C2833]">取消</button>
-              <button onClick={() => setShowEndpointModal(false)} className="px-8 py-2.5 bg-[#66CCFF] text-white rounded-[12px] font-bold text-sm shadow-md hover:bg-[#4DB8FF]">确认</button>
+              <button onClick={() => setShowEndpointModal(false)} className="rounded-[8px] px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-900">取消</button>
+              <button onClick={() => setShowEndpointModal(false)} className="rounded-[8px] bg-brand px-8 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">确认</button>
             </div>
           </div>
         </div>

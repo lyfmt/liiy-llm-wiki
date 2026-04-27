@@ -46,10 +46,23 @@ describe('createPrepareSourceResourceTool', () => {
         rawPath: 'raw/accepted/design.md',
         outputArtifact: 'state/artifacts/knowledge-insert/run-001/resource.json'
       });
+      const parsed = JSON.parse(await readFile(resourceArtifactPath, 'utf8'));
 
       expect(result.details.summary).toBe('prepared source resource src-001');
-      expect(JSON.parse(await readFile(resourceArtifactPath, 'utf8')).rawPath).toBe('raw/accepted/design.md');
-      expect(JSON.parse(await readFile(resourceArtifactPath, 'utf8')).structuredMarkdown).toContain('# Design Patterns');
+      expect(parsed.rawPath).toBe('raw/accepted/design.md');
+      expect(parsed.structuredMarkdown).toContain('# Design Patterns');
+      expect(parsed.sectionHints).toEqual([]);
+      expect(parsed.topicHints).toEqual([]);
+      expect(parsed.metadata).toEqual(
+        expect.objectContaining({
+          title: 'Design Patterns',
+          type: 'markdown',
+          status: 'accepted',
+          hash: 'sha256:design-patterns',
+          importedAt: '2026-04-21T00:00:00.000Z',
+          preparedAt: expect.any(String)
+        })
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

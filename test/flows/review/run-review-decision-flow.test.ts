@@ -203,4 +203,82 @@ describe('runReviewDecisionFlow', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('approves taxonomy draft payloads into wiki/taxonomy', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-review-flow-taxonomy-'));
+
+    try {
+      await bootstrapProject(root);
+      const pendingRunState = {
+        request_run: createRequestRun({
+          run_id: 'run-review-taxonomy-001',
+          user_request: 'write back a taxonomy page',
+          intent: 'mixed',
+          plan: ['observe', 'draft', 'govern'],
+          status: 'needs_review',
+          evidence: ['wiki/taxonomy/engineering.md', 'raw/accepted/design.md'],
+          touched_files: ['wiki/taxonomy/engineering.md'],
+          decisions: ['apply_draft_upsert: taxonomy writeback queued for review'],
+          result_summary: 'waiting for review'
+        }),
+        tool_outcomes: [
+          {
+            order: 1,
+            toolName: 'apply_draft_upsert',
+            summary: 'queued taxonomy write',
+            evidence: ['wiki/taxonomy/engineering.md'],
+            touchedFiles: [],
+            needsReview: true,
+            reviewReasons: ['taxonomy writeback queued for review'],
+            resultMarkdown: 'Draft target: wiki/taxonomy/engineering.md\nQueued for review: taxonomy writeback queued for review',
+            data: {
+              draft: {
+                targetPath: 'wiki/taxonomy/engineering.md',
+                upsertArguments: {
+                  kind: 'taxonomy',
+                  slug: 'engineering',
+                  title: 'Engineering',
+                  aliases: [],
+                  summary: 'Shared engineering taxonomy.',
+                  tags: ['taxonomy'],
+                  source_refs: ['raw/accepted/design.md'],
+                  outgoing_links: [],
+                  status: 'active',
+                  body: '# Engineering\n\nShared engineering taxonomy.\n',
+                  rationale: 'capture durable taxonomy'
+                }
+              }
+            }
+          }
+        ],
+        draft_markdown: '# Draft\n',
+        result_markdown: '# Result\n',
+        changeset: {
+          target_files: ['wiki/taxonomy/engineering.md'],
+          patch_summary: 'persist taxonomy page',
+          rationale: 'capture durable taxonomy',
+          source_refs: ['raw/accepted/design.md'],
+          risk_level: 'medium',
+          needs_review: true
+        }
+      };
+      await saveRequestRunState(root, pendingRunState);
+      await syncReviewTask(root, pendingRunState);
+
+      const result = await runReviewDecisionFlow(root, {
+        runId: 'run-review-taxonomy-001',
+        decision: 'approve',
+        reviewer: 'editor'
+      });
+
+      expect(result.decision).toBe('approve');
+      expect(result.touchedFiles).toEqual(['wiki/taxonomy/engineering.md', 'wiki/index.md', 'wiki/log.md']);
+      expect((await loadKnowledgePage(root, 'taxonomy', 'engineering')).page.title).toBe('Engineering');
+      expect(await readFile(path.join(root, 'wiki', 'log.md'), 'utf8')).toContain(
+        'review-approved taxonomy wiki/taxonomy/engineering.md'
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

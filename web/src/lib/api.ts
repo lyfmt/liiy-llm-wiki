@@ -10,9 +10,15 @@ import type {
   ChatSettingsUpdateResponse,
   ChatModelsResponse,
   DiscoveryResponse,
+  KnowledgeNavigationResponse,
   KnowledgePageResponse,
+  KnowledgeInsertPipelineState,
+  KnowledgeInsertPipelineRetryResponse,
+  KnowledgeInsertPipelineSummary,
+  RawSourceDetail,
   RunDetailResponse,
   RunSummary,
+  SourceSummary,
   TaskSummary
 } from './types';
 
@@ -41,6 +47,33 @@ export function getDiscovery(): Promise<DiscoveryResponse> {
 
 export function getKnowledgePage(kind: string, slug: string): Promise<KnowledgePageResponse> {
   return fetchJson<KnowledgePageResponse>(`/api/pages/${kind}/${encodeURIComponent(slug)}`);
+}
+
+export function getKnowledgeNavigation(): Promise<KnowledgeNavigationResponse> {
+  return fetchJson<KnowledgeNavigationResponse>('/api/knowledge/navigation');
+}
+
+export function getSources(): Promise<SourceSummary[]> {
+  return fetchJson<SourceSummary[]>('/api/sources');
+}
+
+export function getRawSource(sourceId: string): Promise<RawSourceDetail> {
+  return fetchJson<RawSourceDetail>(`/api/sources/${encodeURIComponent(sourceId)}/raw`);
+}
+
+export function getKnowledgeInsertPipeline(runId: string): Promise<KnowledgeInsertPipelineState> {
+  return fetchJson<KnowledgeInsertPipelineState>(`/api/knowledge-insert/pipelines/${encodeURIComponent(runId)}`);
+}
+
+export function getKnowledgeInsertPipelines(): Promise<KnowledgeInsertPipelineSummary[]> {
+  return fetchJson<KnowledgeInsertPipelineSummary[]>('/api/knowledge-insert/pipelines');
+}
+
+export function retryKnowledgeInsertPipeline(runId: string): Promise<KnowledgeInsertPipelineRetryResponse> {
+  return fetchJson<KnowledgeInsertPipelineRetryResponse>(
+    `/api/knowledge-insert/pipelines/${encodeURIComponent(runId)}/retry`,
+    { method: 'POST' }
+  );
 }
 
 export function getChatOperations(): Promise<ChatOperationsSummary> {
@@ -118,6 +151,7 @@ export function uploadChatAttachment(payload: {
   fileName: string;
   mimeType: string;
   dataBase64: string;
+  autoKnowledgeInsert?: boolean;
 }): Promise<ChatAttachmentUploadResponse> {
   return sendJson<ChatAttachmentUploadResponse>('/api/chat/uploads', 'POST', payload);
 }

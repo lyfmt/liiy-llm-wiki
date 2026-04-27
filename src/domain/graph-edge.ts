@@ -74,9 +74,9 @@ function validateGraphEdgeKinds(input: CreateGraphEdgeInput): void {
 
   if (
     input.type === 'about' &&
-    (input.from_kind !== 'assertion' || !['topic', 'section', 'entity'].includes(input.to_kind))
+    (input.from_kind !== 'assertion' || !['topic', 'section', 'entity', 'concept'].includes(input.to_kind))
   ) {
-    throw new Error('about edges must connect assertion to topic, section, or entity');
+    throw new Error('about edges must connect assertion to topic, section, entity, or concept');
   }
 
   if (input.type === 'supported_by' && (input.from_kind !== 'assertion' || input.to_kind !== 'evidence')) {
@@ -93,9 +93,10 @@ function validateGraphEdgeKinds(input: CreateGraphEdgeInput): void {
 
   if (
     input.type === 'mentions' &&
-    (!['topic', 'section', 'source', 'evidence', 'assertion'].includes(input.from_kind) || input.to_kind !== 'entity')
+    (!['topic', 'section', 'source', 'evidence', 'assertion'].includes(input.from_kind) ||
+      !['entity', 'concept'].includes(input.to_kind))
   ) {
-    throw new Error('mentions edges must connect topic/section/source/evidence/assertion to entity');
+    throw new Error('mentions edges must connect topic/section/source/evidence/assertion to entity or concept');
   }
 
   if (input.type === 'belongs_to_taxonomy' && input.to_kind !== 'taxonomy') {

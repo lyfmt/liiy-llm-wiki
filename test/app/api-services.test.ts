@@ -261,9 +261,9 @@ describe('app api services', () => {
       expect(operations.settings.model).toBe('gpt-5.4');
       expect(operations.project_env).toEqual({
         source: 'project_root_env',
-        keys: ['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']
+        keys: ['RUNTIME_API_KEY']
       });
-      expect(operations.project_env.keys).toEqual(expect.arrayContaining(['RUNTIME_API_KEY', 'GRAPH_DATABASE_URL']));
+      expect(operations.project_env.keys).toEqual(['RUNTIME_API_KEY']);
       expect(operations.runtime_readiness).toMatchObject({
         ready: false,
         status: 'missing_api_key',
@@ -284,6 +284,46 @@ describe('app api services', () => {
       });
       expect(operations.suggested_requests).toHaveLength(4);
       expect(operations.suggested_requests[0]).toContain('Inspect the wiki for patch first');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('only exposes runtime-relevant project env keys in chat operations', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-api-services-'));
+
+    try {
+      await bootstrapProject(root);
+      await writeFile(
+        path.join(root, 'state', 'artifacts', 'chat-settings.json'),
+        `${JSON.stringify(
+          {
+            model: 'gpt-5.4',
+            provider: 'llm-wiki-liiy',
+            api: 'anthropic-messages',
+            base_url: 'http://runtime.example.invalid/v1',
+            api_key_env: 'ANTHROPIC_CUSTOM_KEY',
+            reasoning: true,
+            allow_query_writeback: false,
+            allow_lint_autofix: false
+          },
+          null,
+          2
+        )}\n`,
+        'utf8'
+      );
+      await writeFile(
+        path.join(root, '.env'),
+        'ANTHROPIC_CUSTOM_KEY=\nGRAPH_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/llm_wiki_liiy\n',
+        'utf8'
+      );
+
+      const operations = await buildChatOperationsSummaryDto(root);
+
+      expect(operations.project_env).toEqual({
+        source: 'project_root_env',
+        keys: ['ANTHROPIC_CUSTOM_KEY']
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

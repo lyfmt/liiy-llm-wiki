@@ -15,6 +15,7 @@ export interface ProjectPaths {
   wikiLog: string;
   wikiSources: string;
   wikiEntities: string;
+  wikiTaxonomy: string;
   wikiTopics: string;
   wikiQueries: string;
   schema: string;
@@ -61,6 +62,7 @@ export function buildProjectPaths(root: string): ProjectPaths {
     wikiLog: path.join(wiki, 'log.md'),
     wikiSources: path.join(wiki, 'sources'),
     wikiEntities: path.join(wiki, 'entities'),
+    wikiTaxonomy: path.join(wiki, 'taxonomy'),
     wikiTopics: path.join(wiki, 'topics'),
     wikiQueries: path.join(wiki, 'queries'),
     schema,

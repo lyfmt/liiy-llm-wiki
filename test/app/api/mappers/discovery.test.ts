@@ -42,15 +42,32 @@ describe('buildDiscoveryResponseDto', () => {
         }),
         '# Source A\n\n'.padEnd(32_768, 'a')
       );
+      await saveKnowledgePage(
+        root,
+        createKnowledgePage({
+          path: 'wiki/taxonomy/engineering.md',
+          kind: 'taxonomy',
+          title: 'Engineering',
+          summary: 'Shared engineering taxonomy.',
+          source_refs: ['raw/accepted/taxonomy.md'],
+          outgoing_links: [],
+          status: 'active',
+          updated_at: '2026-04-23T00:00:00.000Z'
+        }),
+        '# Engineering\n\n'.padEnd(16_384, 't')
+      );
 
       const storage = await import('../../../../src/storage/knowledge-page-store.js');
       const { buildDiscoveryResponseDto } = await import('../../../../src/app/api/mappers/discovery.js');
       const response = await buildDiscoveryResponseDto(root);
 
-      expect(response.totals.sources).toBe(1);
-      expect(response.sections.find((section) => section.kind === 'source')?.items[0]?.summary).toBe('Short source summary.');
+      expect(response.totals.sources).toBe(0);
+      expect(response.totals.taxonomy).toBe(1);
+      expect(response.sections.find((section) => section.kind === 'taxonomy')?.items[0]?.title).toBe('Engineering');
+      expect(response.sections.find((section) => section.kind === 'source')).toBeUndefined();
       expect(vi.mocked(storage.loadKnowledgePage)).not.toHaveBeenCalled();
-      expect(vi.mocked(storage.loadKnowledgePageMetadata)).toHaveBeenCalledWith(root, 'source', 'source-a');
+      expect(vi.mocked(storage.loadKnowledgePageMetadata)).not.toHaveBeenCalledWith(root, 'source', 'source-a');
+      expect(vi.mocked(storage.loadKnowledgePageMetadata)).toHaveBeenCalledWith(root, 'taxonomy', 'engineering');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

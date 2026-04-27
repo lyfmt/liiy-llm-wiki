@@ -7,7 +7,7 @@ import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { resolveStateArtifactPath } from '../../storage/subagent-artifact-paths.js';
 import type { RuntimeContext } from '../runtime-context.js';
 import type { RuntimeToolOutcome } from '../request-run-state.js';
-import type { KnowledgeEvidenceAnchor } from './merge-knowledge-candidates.js';
+import type { KnowledgeEvidenceAnchor } from './merge-extracted-knowledge.js';
 import type { KnowledgeResourceBlock } from './split-resource-blocks.js';
 
 const parameters = Type.Object({
@@ -27,7 +27,7 @@ export interface ExtractionCoverageAuditArtifact {
     totalBlocks: number;
     completedBlocks: number;
     sparseBlockIds: string[];
-    missingBlockIds: string[];
+    unreadBlockIds: string[];
     minimumEvidenceAnchorsPerBlock: number;
   };
 }
@@ -49,11 +49,12 @@ export function createAuditExtractionCoverageTool(
       const blocks = parseBlocksArtifact(await readFile(resolvedBlocks.absolutePath, 'utf8'));
       const evidenceAnchors = parseEvidenceAnchors(await readFile(resolvedMerged.absolutePath, 'utf8'));
       const anchorCounts = countAnchorsByBlock(evidenceAnchors);
+      const auditableBlocks = blocks.filter((block) => !isSkippableCoverageBlock(block));
       const sparseBlockIds: string[] = [];
-      const missingBlockIds: string[] = [];
+      const unreadBlockIds: string[] = [];
       let completedBlocks = 0;
 
-      for (const block of blocks) {
+      for (const block of auditableBlocks) {
         const anchorCount = anchorCounts.get(block.blockId) ?? 0;
 
         if (anchorCount >= minimumEvidenceAnchorsPerBlock) {
@@ -66,16 +67,16 @@ export function createAuditExtractionCoverageTool(
           continue;
         }
 
-        missingBlockIds.push(block.blockId);
+        unreadBlockIds.push(block.blockId);
       }
 
       const audit: ExtractionCoverageAuditArtifact = {
-        status: sparseBlockIds.length === 0 && missingBlockIds.length === 0 ? 'passed' : 'failed',
+        status: sparseBlockIds.length === 0 && unreadBlockIds.length === 0 ? 'passed' : 'failed',
         coverage: {
-          totalBlocks: blocks.length,
+          totalBlocks: auditableBlocks.length,
           completedBlocks,
           sparseBlockIds,
-          missingBlockIds,
+          unreadBlockIds,
           minimumEvidenceAnchorsPerBlock
         }
       };
@@ -93,7 +94,7 @@ export function createAuditExtractionCoverageTool(
           `Coverage status: ${audit.status}`,
           `Completed blocks: ${audit.coverage.completedBlocks}/${audit.coverage.totalBlocks}`,
           `Sparse blocks: ${audit.coverage.sparseBlockIds.join(', ') || '_none_'}`,
-          `Missing blocks: ${audit.coverage.missingBlockIds.join(', ') || '_none_'}`,
+          `Unread blocks: ${audit.coverage.unreadBlockIds.join(', ') || '_none_'}`,
           `Artifact: ${resolvedOutput.projectPath}`
         ].join('\n')
       };
@@ -113,7 +114,11 @@ function parseBlocksArtifact(content: string): KnowledgeResourceBlock[] {
     throw new Error('Invalid split resource blocks artifact');
   }
 
-  return value.blocks.filter(isKnowledgeBlock);
+  if (!value.blocks.every(isKnowledgeBlock)) {
+    throw new Error('Invalid split resource blocks artifact');
+  }
+
+  return value.blocks;
 }
 
 function parseEvidenceAnchors(content: string): KnowledgeEvidenceAnchor[] {
@@ -123,7 +128,11 @@ function parseEvidenceAnchors(content: string): KnowledgeEvidenceAnchor[] {
     throw new Error('Invalid merged knowledge candidates artifact');
   }
 
-  return value.evidenceAnchors.filter(isEvidenceAnchor);
+  if (!value.evidenceAnchors.every(isEvidenceAnchor)) {
+    throw new Error('Invalid merged knowledge candidates artifact');
+  }
+
+  return value.evidenceAnchors;
 }
 
 function countAnchorsByBlock(evidenceAnchors: KnowledgeEvidenceAnchor[]): Map<string, number> {
@@ -142,6 +151,10 @@ function isKnowledgeBlock(value: unknown): value is KnowledgeResourceBlock {
 
 function isEvidenceAnchor(value: unknown): value is KnowledgeEvidenceAnchor {
   return isRecord(value) && typeof value.anchorId === 'string' && typeof value.blockId === 'string' && typeof value.quote === 'string';
+}
+
+function isSkippableCoverageBlock(block: KnowledgeResourceBlock): boolean {
+  return /^--\s+\d+\s+of\s+\d+\s+--$/u.test(block.text.trim());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

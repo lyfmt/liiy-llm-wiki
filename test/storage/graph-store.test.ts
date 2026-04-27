@@ -105,8 +105,8 @@ describe('graph-store reads and writes edges', () => {
             review_state: 'reviewed',
             retrieval_text: 'Design Patterns GoF',
             attributes: { scope_note: 'Architecture topic.' },
-            created_at: '2026-04-19T00:00:00.000Z',
-            updated_at: '2026-04-19T00:00:00.000Z'
+            created_at: new Date('2026-04-19T00:00:00.000Z'),
+            updated_at: new Date('2026-04-19T00:00:00.000Z')
           }
         ]
       })
@@ -116,6 +116,8 @@ describe('graph-store reads and writes edges', () => {
 
     expect(node?.id).toBe('topic:design-patterns');
     expect(node?.aliases).toEqual(['GoF']);
+    expect(node?.created_at).toBe('2026-04-19T00:00:00.000Z');
+    expect(node?.updated_at).toBe('2026-04-19T00:00:00.000Z');
   });
 
   it('lists outgoing and incoming edges using the database client', async () => {
@@ -132,8 +134,8 @@ describe('graph-store reads and writes edges', () => {
       provenance: 'human-edited',
       review_state: 'reviewed',
       qualifiers: { chapter: 1 },
-      created_at: '2026-04-19T00:00:00.000Z',
-      updated_at: '2026-04-19T00:00:00.000Z'
+      created_at: new Date('2026-04-19T00:00:00.000Z'),
+      updated_at: new Date('2026-04-19T00:00:00.000Z')
     };
     const client = {
       query: async (sql: string, params?: unknown[]) => {
@@ -150,6 +152,8 @@ describe('graph-store reads and writes edges', () => {
     expect(calls[1]?.sql).toContain('where to_id = $1');
     expect(outgoing[0]?.edge_id).toBe('edge:supported-by:1');
     expect(incoming[0]?.edge_id).toBe('edge:supported-by:1');
+    expect(outgoing[0]?.created_at).toBe('2026-04-19T00:00:00.000Z');
+    expect(incoming[0]?.updated_at).toBe('2026-04-19T00:00:00.000Z');
   });
 
   it('returns empty edge lists when the database has no matches', async () => {

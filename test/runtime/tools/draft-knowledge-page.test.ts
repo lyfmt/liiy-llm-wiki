@@ -279,4 +279,59 @@ describe('createDraftKnowledgePageTool', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('builds taxonomy draft targets under wiki/taxonomy', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-runtime-draft-page-taxonomy-'));
+
+    try {
+      const tool = createDraftKnowledgePageTool(
+        createRuntimeContext({
+          root,
+          runId: 'runtime-draft-page-taxonomy-001'
+        })
+      );
+
+      const result = await tool.execute('tool-call-taxonomy-1', {
+        ...buildDraftParameters(),
+        kind: 'taxonomy',
+        slug: 'engineering',
+        title: 'Engineering',
+        summary: 'Shared engineering taxonomy.',
+        body: '# Engineering\n\nShared engineering taxonomy.\n',
+        rationale: 'prepare a durable taxonomy draft'
+      });
+
+      expect(result.details.summary).toBe('drafted wiki/taxonomy/engineering.md');
+      expect(result.details.evidence).toEqual([
+        'wiki/taxonomy/engineering.md',
+        'raw/accepted/design.md',
+        'wiki/topics/llm-wiki.md'
+      ]);
+      expect(result.details.resultMarkdown).toContain('- Target: wiki/taxonomy/engineering.md');
+      expect(result.details.resultMarkdown).toContain('"kind": "taxonomy"');
+      expect(result.details.data).toEqual({
+        synthesisMode: 'deterministic',
+        synthesisFallbackReason: null,
+        draft: {
+          targetPath: 'wiki/taxonomy/engineering.md',
+          upsertArguments: {
+            kind: 'taxonomy',
+            slug: 'engineering',
+            title: 'Engineering',
+            summary: 'Shared engineering taxonomy.',
+            status: 'active',
+            updated_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+            body: '# Engineering\n\nShared engineering taxonomy.',
+            rationale: 'prepare a durable taxonomy draft',
+            source_refs: ['raw/accepted/design.md'],
+            outgoing_links: ['wiki/topics/llm-wiki.md'],
+            aliases: ['Patch Strategy'],
+            tags: ['patch-first']
+          }
+        }
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

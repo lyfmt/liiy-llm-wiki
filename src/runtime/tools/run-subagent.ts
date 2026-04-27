@@ -89,16 +89,28 @@ export function createRunSubagentTool(
         }
       });
 
-      await agent.prompt(normalizedInput.taskPrompt);
+      let modelFailure: string | null = null;
+
+      try {
+        await agent.prompt(normalizedInput.taskPrompt);
+      } catch (error: unknown) {
+        modelFailure = error instanceof Error ? error.message : String(error);
+      }
 
       const finalAssistant = getLatestAssistantMessage(agent.state.messages as SubagentMessage[]);
 
-      if (finalAssistant?.stopReason === 'error' || finalAssistant?.stopReason === 'aborted') {
-        throw new Error(finalAssistant.errorMessage ?? `Subagent ended with ${finalAssistant.stopReason}`);
+      if (modelFailure === null && (finalAssistant?.stopReason === 'error' || finalAssistant?.stopReason === 'aborted')) {
+        modelFailure = finalAssistant.errorMessage ?? `Subagent ended with ${finalAssistant.stopReason}`;
       }
 
-      const assistantText = collectAssistantText(agent.state.messages as SubagentMessage[], toolOutcomes);
-      const receipt = parseReceipt(runtimeContext.root, assistantText, toolOutcomes, outputDirectory);
+      const assistantText =
+        modelFailure === null
+          ? collectAssistantText(agent.state.messages as SubagentMessage[], toolOutcomes)
+          : modelFailure;
+      const receipt =
+        modelFailure === null
+          ? parseReceipt(runtimeContext.root, assistantText, toolOutcomes, outputDirectory)
+          : createFailedReceipt(modelFailure, toolOutcomes, outputDirectory);
       const evidence = uniqueStrings([profile.filePath, ...toolOutcomes.flatMap((outcome) => outcome.evidence ?? [])]);
       const touchedFiles = uniqueStrings(toolOutcomes.flatMap((outcome) => outcome.touchedFiles ?? []));
       const resultMarkdown = [
@@ -177,13 +189,13 @@ function selectEffectiveTools(
 }
 
 function normalizeSubagentInputArtifacts(root: string, artifactPaths: string[]): ResolvedStateArtifactPath[] {
-  const subagentArtifactsRoot = buildProjectPaths(root).stateSubagents;
+  const stateArtifactsRoot = buildProjectPaths(root).stateArtifacts;
 
   return artifactPaths.map((artifactPath) => {
     const resolved = resolveStateArtifactPath(root, artifactPath);
 
-    if (!isWithinDirectory(subagentArtifactsRoot, resolved.absolutePath)) {
-      throw new Error('Subagent input artifacts must stay within state/artifacts/subagents/');
+    if (!isWithinDirectory(stateArtifactsRoot, resolved.absolutePath)) {
+      throw new Error('Subagent input artifacts must stay within state/artifacts/');
     }
 
     return resolved;
@@ -192,10 +204,26 @@ function normalizeSubagentInputArtifacts(root: string, artifactPaths: string[]):
 
 function resolveSubagentOutputDirectory(root: string, outputDir: string): ResolvedStateArtifactPath {
   const resolved = resolveStateArtifactPath(root, outputDir);
-  const runId = path.basename(resolved.absolutePath);
+  const subagentsRoot = buildProjectPaths(root).stateSubagents;
+  const relativePath = path.relative(subagentsRoot, resolved.absolutePath);
+
+  if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('Subagent output directory must be state/artifacts/subagents/<run-id>');
+  }
+
+  const [runId, ...segments] = relativePath.split(path.sep).filter((segment) => segment.length > 0);
+
+  if (!runId) {
+    throw new Error('Subagent output directory must be state/artifacts/subagents/<run-id>');
+  }
+
   const expectedDirectory = buildSubagentArtifactPaths(root, runId).root;
 
-  if (resolved.absolutePath !== expectedDirectory) {
+  if (!isWithinDirectory(expectedDirectory, resolved.absolutePath)) {
+    throw new Error('Subagent output directory must be state/artifacts/subagents/<run-id>');
+  }
+
+  if (segments[0] === 'input') {
     throw new Error('Subagent output directory must be state/artifacts/subagents/<run-id>');
   }
 
@@ -276,6 +304,23 @@ function parseReceipt(
   return {
     status: hasErroredToolOutcome(toolOutcomes) ? 'failed' : 'done',
     summary: assistantText || toolOutcomes.at(-1)?.summary || 'Subagent completed.',
+    outputArtifacts: uniqueStrings(
+      toolOutcomes
+        .flatMap((outcome) => outcome.touchedFiles ?? [])
+        .filter((filePath) => filePath.startsWith('state/artifacts/'))
+        .filter((filePath) => isWithinDirectory(outputDirectory.projectPath, filePath))
+    )
+  };
+}
+
+function createFailedReceipt(
+  summary: string,
+  toolOutcomes: RuntimeToolOutcome[],
+  outputDirectory: ResolvedStateArtifactPath
+): SubagentReceipt {
+  return {
+    status: 'failed',
+    summary,
     outputArtifacts: uniqueStrings(
       toolOutcomes
         .flatMap((outcome) => outcome.touchedFiles ?? [])

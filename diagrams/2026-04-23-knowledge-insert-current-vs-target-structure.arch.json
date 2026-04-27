@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "title": "Wiki 插入实现：当前结构 vs 目标结构",
+  "type": "engineering-diagram",
+  "source": "generated",
+  "profile": "engineering-review",
+  "theme": "tech-blue",
+  "layout": "horizontal",
+  "counts": {
+    "nodes": 16,
+    "edges": 17,
+    "modules": 2
+  },
+  "nodes": [
+    {
+      "id": "current_source",
+      "label": "Source 入口\nchat attachment -> accepted source",
+      "type": "process",
+      "module": "current",
+      "size": "large"
+    },
+    {
+      "id": "current_blocks",
+      "label": "Resource / Blocks / Batches\nprepare_source_resource\nsplit_resource_blocks\nsplit_block_batches",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_extract",
+      "label": "Extraction Candidates\nentities / assertions / relations\nevidenceAnchors / sectionCandidates / topicHints",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_sections",
+      "label": "Section 归并层\nsection 是插入单位\n已有 body / entityIds / assertionIds / evidenceAnchorIds",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_hosts",
+      "label": "Topic Host 层\nresolve_topic_hosts\n当前 host resolve 输入 = section",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_write",
+      "label": "Wiki 写入层\nbuild_topic_insertion_plan\ndraft_knowledge_page\napply_draft_upsert",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_readback",
+      "label": "Graph / 回源读路径\nsource-grounded ingest 可写 topic / section / evidence / source\nread_wiki_page -> read_raw_source",
+      "type": "process",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "current_gap",
+      "label": "当前缺口\n没有 taxonomy resolve / audit / write\n也没有 entity/assertion/relation 的 durable write",
+      "type": "document",
+      "module": "current",
+      "size": "xl"
+    },
+    {
+      "id": "target_source",
+      "label": "Source 入口\n上传 / 注册 / 识别 / source overview\n目标入口仍然是 source",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_topic_plan",
+      "label": "Topic 规划层\n先从 source 总览拿候选 topic\nreuse existing or create new",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_taxonomy",
+      "label": "Taxonomy 树层\nroot\nnew node generation\nleaf attach\nnode merge",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_sections",
+      "label": "Section 贴源层\nsource chunks -> section body\n正文贴近原文，而不是摘要壳",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_attach",
+      "label": "挂载层\ntopic / taxonomy / parent section\n共同决定 section 最终落点",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_graph",
+      "label": "Graph 语义层\nentity / concept / assertion / relation\ndurable write + link",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_provenance",
+      "label": "Source Anchor / Provenance\nlocator / excerpt / source path\nsection 可定位回 source",
+      "type": "process",
+      "module": "target",
+      "size": "xl"
+    },
+    {
+      "id": "target_surfaces",
+      "label": "Wiki + Graph Projection\n可读 / 可写 / 可审 / 可回跳\nagent 沿 topic -> section -> source anchors -> source 读取",
+      "type": "terminal",
+      "module": "target",
+      "size": "xl"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "current_source",
+      "to": "current_blocks",
+      "type": "primary"
+    },
+    {
+      "id": "edge-2",
+      "from": "current_blocks",
+      "to": "current_extract",
+      "type": "primary"
+    },
+    {
+      "id": "edge-3",
+      "from": "current_extract",
+      "to": "current_sections",
+      "type": "primary"
+    },
+    {
+      "id": "edge-4",
+      "from": "current_sections",
+      "to": "current_hosts",
+      "type": "primary"
+    },
+    {
+      "id": "edge-5",
+      "from": "current_hosts",
+      "to": "current_write",
+      "type": "primary"
+    },
+    {
+      "id": "edge-6",
+      "from": "current_sections",
+      "to": "current_readback",
+      "type": "data",
+      "label": "section grounding"
+    },
+    {
+      "id": "edge-7",
+      "from": "current_hosts",
+      "to": "current_gap",
+      "type": "optional",
+      "label": "taxonomy 未接入"
+    },
+    {
+      "id": "edge-8",
+      "from": "current_extract",
+      "to": "current_gap",
+      "type": "optional",
+      "label": "graph durable write 未完成"
+    },
+    {
+      "id": "edge-9",
+      "from": "target_source",
+      "to": "target_topic_plan",
+      "type": "primary"
+    },
+    {
+      "id": "edge-10",
+      "from": "target_topic_plan",
+      "to": "target_taxonomy",
+      "type": "primary",
+      "label": "topic -> taxonomy planning"
+    },
+    {
+      "id": "edge-11",
+      "from": "target_taxonomy",
+      "to": "target_sections",
+      "type": "primary"
+    },
+    {
+      "id": "edge-12",
+      "from": "target_sections",
+      "to": "target_attach",
+      "type": "primary"
+    },
+    {
+      "id": "edge-13",
+      "from": "target_attach",
+      "to": "target_graph",
+      "type": "primary"
+    },
+    {
+      "id": "edge-14",
+      "from": "target_sections",
+      "to": "target_provenance",
+      "type": "data",
+      "label": "section anchors"
+    },
+    {
+      "id": "edge-15",
+      "from": "target_graph",
+      "to": "target_provenance",
+      "type": "data",
+      "label": "assertion / relation evidence"
+    },
+    {
+      "id": "edge-16",
+      "from": "target_provenance",
+      "to": "target_surfaces",
+      "type": "primary"
+    },
+    {
+      "id": "edge-17",
+      "from": "target_graph",
+      "to": "target_surfaces",
+      "type": "primary"
+    }
+  ],
+  "modules": [
+    {
+      "id": "current",
+      "label": "当前实现结构",
+      "color": "#DCFCE7"
+    },
+    {
+      "id": "target",
+      "label": "目标结构",
+      "color": "#DBEAFE"
+    }
+  ]
+}
