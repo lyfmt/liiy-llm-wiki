@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, ChevronRight, Database, Eye, FileText, Search } from 'lucide-react';
 
-import { FloatingAssistantButton, ShellContainer } from '@/components/layout/template-primitives';
+import { ShellContainer } from '@/components/layout/template-primitives';
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
 import { useRawSource } from '@/features/raw/hooks/use-raw-source';
 import { useRawSources } from '@/features/raw/hooks/use-raw-sources';
@@ -147,7 +147,6 @@ export function RawIndexPage() {
         </main>
       </div>
 
-      <FloatingAssistantButton />
     </ShellContainer>
   );
 }

@@ -476,6 +476,21 @@ export interface ChatAttachmentUploadResponse {
   pipeline_source_id?: string;
 }
 
+export interface KnowledgeInsertPipelineRetryResponse {
+  ok: true;
+  session_id: string;
+  attachment: ChatAttachmentRef;
+  pipeline_run_id: string;
+  pipeline_status: string;
+}
+
+export interface KnowledgeInsertPipelineSummary {
+  run_id: string;
+  file_name: string;
+  attachment: ChatAttachmentRef | null;
+  state: KnowledgeInsertPipelineState;
+}
+
 export interface KnowledgeInsertPipelineState {
   schemaVersion: 'knowledge-insert.pipeline.v3';
   runId: string;

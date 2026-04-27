@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -19,6 +19,8 @@ import { saveRequestRunState, type RequestRunState } from '../../src/storage/req
 import { buildRequestRunArtifactPaths } from '../../src/storage/request-run-artifact-paths.js';
 import { syncReviewTask } from '../../src/flows/review/sync-review-task.js';
 import { saveSourceManifest } from '../../src/storage/source-manifest-store.js';
+import { writeKnowledgeInsertPipelineArtifact } from '../../src/flows/knowledge-insert/pipeline-artifacts.js';
+import { createKnowledgeInsertPipelineState } from '../../src/domain/knowledge-insert-pipeline.js';
 
 vi.mock('../../src/storage/load-topic-graph-projection.js', () => ({
   loadTopicGraphProjectionInput: vi.fn(async (_client, slug: string) =>
@@ -1630,6 +1632,219 @@ describe('createWebServer', () => {
         );
 
         expect(state.errors).toContain('promotion failed before state');
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('retries a failed auto knowledge insert pipeline from its run id', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const launchedRunIds: string[] = [];
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async (input) => {
+          launchedRunIds.push(input.runId ?? 'pipeline-missing');
+          if (launchedRunIds.length === 1) {
+            throw new Error('temporary pipeline failure');
+          }
+          return {
+            runId: input.runId ?? 'pipeline-missing',
+            sourceId: `src-attachment-${input.attachmentId}`,
+            status: 'running'
+          };
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'retry-brief.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Retry attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+
+        await waitForPipelineState<{ status: string }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        const retry = await fetchJson<{
+          ok: boolean;
+          pipeline_run_id: string;
+          pipeline_status: string;
+          attachment: { attachment_id: string };
+        }>(`${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}/retry`, {
+          method: 'POST'
+        });
+
+        expect(retry.status).toBe(202);
+        expect(retry.body.ok).toBe(true);
+        expect(retry.body.pipeline_run_id).toMatch(/^pipeline-[0-9a-f-]{36}$/u);
+        expect(retry.body.pipeline_run_id).not.toBe(upload.body.pipeline_run_id);
+        expect(retry.body.pipeline_status).toBe('running');
+        expect(retry.body.attachment.attachment_id).toBe(upload.body.attachment.attachment_id);
+        expect(launchedRunIds).toEqual([upload.body.pipeline_run_id, retry.body.pipeline_run_id]);
+        await expect(loadChatAttachment(root, upload.body.attachment.attachment_id)).resolves.toMatchObject({
+          knowledge_insert_pipeline_run_id: retry.body.pipeline_run_id
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('lists recent knowledge insert pipelines with attachment names for UI recovery', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+
+    try {
+      await bootstrapProject(root);
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId }) => ({
+          runId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', runId)
+        }),
+        runKnowledgeInsertPipelineFromAttachment: async () => {
+          throw new Error('recoverable launch failure');
+        }
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const upload = await fetchJson<{
+          attachment: { attachment_id: string };
+          pipeline_run_id: string;
+        }>(`${baseUrl}/api/chat/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fileName: 'recoverable.txt',
+            mimeType: 'text/plain',
+            dataBase64: Buffer.from('Recoverable attachment body\n', 'utf8').toString('base64'),
+            autoKnowledgeInsert: true
+          })
+        });
+        await waitForPipelineState<{ status: string }>(
+          `${baseUrl}/api/knowledge-insert/pipelines/${encodeURIComponent(upload.body.pipeline_run_id)}`,
+          (body) => body.status === 'failed'
+        );
+
+        const pipelines = await fetchJson<Array<{
+          run_id: string;
+          file_name: string;
+          attachment: { attachment_id: string; file_name: string };
+          state: { runId: string; status: string };
+        }>>(`${baseUrl}/api/knowledge-insert/pipelines`);
+
+        expect(pipelines.status).toBe(200);
+        expect(pipelines.body[0]).toMatchObject({
+          run_id: upload.body.pipeline_run_id,
+          file_name: 'recoverable.txt',
+          attachment: {
+            attachment_id: upload.body.attachment.attachment_id,
+            file_name: 'recoverable.txt'
+          },
+          state: {
+            runId: upload.body.pipeline_run_id,
+            status: 'failed'
+          }
+        });
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  it('reports pre-existing running knowledge insert pipelines as interrupted', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'llm-wiki-web-server-'));
+    const runId = 'pipeline-stale-running';
+
+    try {
+      await bootstrapProject(root);
+      const statePath = (await writeKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json', createKnowledgeInsertPipelineState({
+        runId,
+        sourceId: 'src-stale',
+        storageMode: 'pg-primary',
+        currentStage: 'parts.materialized',
+        status: 'running',
+        artifacts: {},
+        partProgress: {
+          total: 35,
+          completed: 8,
+          running: ['part-009'],
+          pending: 26
+        }
+      }))).absolutePath;
+      await utimes(statePath, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-01T00:00:00.000Z'));
+
+      const server = createWebServer(root, {
+        runRuntimeAgent: async ({ runId: requestRunId }) => ({
+          runId: requestRunId,
+          intent: 'query',
+          plan: [],
+          assistantText: '',
+          toolOutcomes: [],
+          savedRunState: path.join(root, 'state', 'runs', requestRunId)
+        })
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a port');
+      }
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+
+      try {
+        const pipeline = await fetchJson<{
+          status: string;
+          errors: string[];
+          partProgress: { completed: number; total: number };
+        }>(`${baseUrl}/api/knowledge-insert/pipelines/${runId}`);
+
+        expect(pipeline.status).toBe(200);
+        expect(pipeline.body.status).toBe('failed');
+        expect(pipeline.body.errors.at(-1)).toContain('Pipeline was interrupted before this server process started');
+        expect(pipeline.body.partProgress).toEqual({ total: 35, completed: 8, running: ['part-009'], pending: 26 });
       } finally {
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       }

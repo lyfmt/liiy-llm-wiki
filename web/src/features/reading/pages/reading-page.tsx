@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
-import { FloatingAssistantButton, ShellContainer } from '@/components/layout/template-primitives';
+import { ShellContainer } from '@/components/layout/template-primitives';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ReadingMarkdown } from '@/features/reading/components/reading-markdown';
@@ -78,7 +78,6 @@ export function ReadingPage() {
         </main>
       </div>
 
-      <FloatingAssistantButton />
     </ShellContainer>
   );
 }

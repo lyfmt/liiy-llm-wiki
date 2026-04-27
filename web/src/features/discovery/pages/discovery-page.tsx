@@ -1,6 +1,6 @@
 import { ArrowRight, Clock, Database, FileText, Settings } from 'lucide-react';
 
-import { FloatingAssistantButton, ShellContainer, SkyBackground, ZipTopNav } from '@/components/layout/template-primitives';
+import { ShellContainer, SkyBackground, ZipTopNav } from '@/components/layout/template-primitives';
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
 import { useDiscovery } from '@/features/discovery/hooks/use-discovery';
 import type { DiscoveryItem } from '@/lib/types';
@@ -26,7 +26,7 @@ export function DiscoveryPage() {
     <ShellContainer className="min-h-screen overflow-x-hidden bg-slate-50">
       <ZipTopNav active="home" />
 
-      <main className="relative flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center overflow-hidden px-4 py-24 text-center">
+      <main className="relative flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center overflow-hidden px-4 pb-44 pt-20 text-center md:py-24">
         <SkyBackground />
         <div className="relative z-10 max-w-4xl px-6">
           <h1 className="mb-6 text-6xl font-bold leading-tight tracking-tight text-slate-900 md:text-8xl">
@@ -93,7 +93,6 @@ export function DiscoveryPage() {
         </div>
       </section>
 
-      <FloatingAssistantButton />
     </ShellContainer>
   );
 }

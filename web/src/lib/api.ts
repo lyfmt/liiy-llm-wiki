@@ -13,6 +13,8 @@ import type {
   KnowledgeNavigationResponse,
   KnowledgePageResponse,
   KnowledgeInsertPipelineState,
+  KnowledgeInsertPipelineRetryResponse,
+  KnowledgeInsertPipelineSummary,
   RawSourceDetail,
   RunDetailResponse,
   RunSummary,
@@ -61,6 +63,17 @@ export function getRawSource(sourceId: string): Promise<RawSourceDetail> {
 
 export function getKnowledgeInsertPipeline(runId: string): Promise<KnowledgeInsertPipelineState> {
   return fetchJson<KnowledgeInsertPipelineState>(`/api/knowledge-insert/pipelines/${encodeURIComponent(runId)}`);
+}
+
+export function getKnowledgeInsertPipelines(): Promise<KnowledgeInsertPipelineSummary[]> {
+  return fetchJson<KnowledgeInsertPipelineSummary[]>('/api/knowledge-insert/pipelines');
+}
+
+export function retryKnowledgeInsertPipeline(runId: string): Promise<KnowledgeInsertPipelineRetryResponse> {
+  return fetchJson<KnowledgeInsertPipelineRetryResponse>(
+    `/api/knowledge-insert/pipelines/${encodeURIComponent(runId)}/retry`,
+    { method: 'POST' }
+  );
 }
 
 export function getChatOperations(): Promise<ChatOperationsSummary> {

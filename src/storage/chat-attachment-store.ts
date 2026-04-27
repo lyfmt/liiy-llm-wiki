@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { PDFParse } from 'pdf-parse';
@@ -79,6 +79,38 @@ export async function resolveChatAttachments(
   }
 
   return attachments;
+}
+
+export async function findChatAttachmentByKnowledgeInsertPipelineRunId(
+  root: string,
+  pipelineRunId: string
+): Promise<ChatAttachmentRecord | null> {
+  const attachmentsRoot = buildProjectPaths(root).stateChatAttachments;
+  let entries: string[];
+
+  try {
+    entries = await readdir(attachmentsRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    try {
+      const attachment = await loadChatAttachment(root, entry);
+      if (attachment.knowledge_insert_pipeline_run_id === pipelineRunId) {
+        return attachment;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  return null;
 }
 
 export async function markChatAttachmentPersisted(root: string, attachmentId: string): Promise<ChatAttachmentRecord> {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { FloatingAssistantButton, ShellContainer } from '@/components/layout/template-primitives';
+import { ShellContainer } from '@/components/layout/template-primitives';
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
 import { KnowledgeLevelView } from '@/features/knowledge/components/knowledge-level-view';
 import { TaxonomyDrilldownSidebar } from '@/features/knowledge/components/taxonomy-drilldown-sidebar';
@@ -34,7 +34,6 @@ export function KnowledgeBasePage() {
         </div>
       </div>
 
-      <FloatingAssistantButton />
     </ShellContainer>
   );
 }

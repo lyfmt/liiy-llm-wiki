@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Database, FileText, Hash } from 'lucide-react';
 
-import { FloatingAssistantButton, ShellContainer } from '@/components/layout/template-primitives';
+import { ShellContainer } from '@/components/layout/template-primitives';
 import { ErrorState, LoadingState } from '@/components/layout/status-cards';
 import { useRawSource } from '@/features/raw/hooks/use-raw-source';
 import { formatDateLabel } from '@/lib/utils';
@@ -131,7 +131,6 @@ export function RawReadingPage() {
         </main>
       </div>
 
-      <FloatingAssistantButton />
     </ShellContainer>
   );
 }

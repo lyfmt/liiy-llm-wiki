@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   toAcceptedChatRunResponseDto,
@@ -40,6 +42,7 @@ import type { ChatAttachmentRef } from '../../../domain/chat-attachment.js';
 import { createRequestRun, type RequestRunStatus } from '../../../domain/request-run.js';
 import type { ChatSession } from '../../../domain/chat-session.js';
 import { createKnowledgeInsertPipelineState } from '../../../domain/knowledge-insert-pipeline.js';
+import type { KnowledgeInsertPipelineState } from '../../../domain/knowledge-insert-pipeline.js';
 import { syncReviewTask } from '../../../flows/review/sync-review-task.js';
 import { buildUserMessageWithAttachments } from '../../../runtime/chat-attachment-content.js';
 import { buildIntentPlan, classifyIntent } from '../../../runtime/intent-classifier.js';
@@ -48,6 +51,7 @@ import type { RunRuntimeAgentResult } from '../../../runtime/agent-session.js';
 import { resolveRuntimeModel } from '../../../runtime/resolve-runtime-model.js';
 import {
   markChatAttachmentKnowledgeInsertPipeline,
+  findChatAttachmentByKnowledgeInsertPipelineRunId,
   resolveChatAttachments,
   saveBufferedChatAttachment,
   toChatAttachmentRef
@@ -55,6 +59,7 @@ import {
 import { saveRequestRunState } from '../../../storage/request-run-state-store.js';
 import { loadChatSettings, saveChatSettings } from '../../../storage/chat-settings-store.js';
 import { loadProjectEnv, saveProjectEnv } from '../../../storage/project-env-store.js';
+import { buildProjectPaths } from '../../../config/project-paths.js';
 import { readKnowledgeInsertPipelineArtifact, writeKnowledgeInsertPipelineArtifact } from '../../../flows/knowledge-insert/pipeline-artifacts.js';
 
 export async function handleChatRoutes(context: ApiRouteContext): Promise<boolean> {
@@ -169,10 +174,15 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
     return true;
   }
 
+  if (method === 'GET' && pathname === '/api/knowledge-insert/pipelines') {
+    writeJson(response, 200, await listRecentKnowledgeInsertPipelines(root));
+    return true;
+  }
+
   if (method === 'GET' && pathname.startsWith('/api/knowledge-insert/pipelines/')) {
     const runId = decodeURIComponent(pathname.slice('/api/knowledge-insert/pipelines/'.length));
     try {
-      writeJson(response, 200, await readKnowledgeInsertPipelineArtifact(root, runId, 'pipeline-state.json'));
+      writeJson(response, 200, await readKnowledgeInsertPipelineStateForResponse(root, runId));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         writeJson(response, 404, { error: 'pipeline_not_found' });
@@ -180,6 +190,44 @@ export async function handleChatRoutes(context: ApiRouteContext): Promise<boolea
       }
       throw error;
     }
+    return true;
+  }
+
+  if (method === 'POST' && pathname.startsWith('/api/knowledge-insert/pipelines/') && pathname.endsWith('/retry')) {
+    const runId = decodeURIComponent(
+      pathname.slice('/api/knowledge-insert/pipelines/'.length, pathname.length - '/retry'.length)
+    );
+    const attachment = await findChatAttachmentByKnowledgeInsertPipelineRunId(root, runId);
+
+    if (!attachment) {
+      writeJson(response, 404, { error: 'pipeline_attachment_not_found' });
+      return true;
+    }
+
+    if (!dependencies.runKnowledgeInsertPipelineFromAttachment) {
+      writeJson(response, 503, { error: 'knowledge_insert_pipeline_unavailable' });
+      return true;
+    }
+
+    const retryRunId = `pipeline-${randomUUID()}`;
+    const updatedAttachment = await markChatAttachmentKnowledgeInsertPipeline(root, attachment.attachment_id, retryRunId);
+
+    void dependencies.runKnowledgeInsertPipelineFromAttachment({
+      root,
+      attachmentId: updatedAttachment.attachment_id,
+      sessionId: updatedAttachment.session_id,
+      runId: retryRunId
+    }).catch((error: unknown) =>
+      recordFailedAutoKnowledgeInsertPipelineLaunch(root, retryRunId, updatedAttachment.attachment_id, error)
+    );
+
+    writeJson(response, 202, {
+      ok: true,
+      session_id: updatedAttachment.session_id,
+      attachment: toChatAttachmentRef(updatedAttachment),
+      pipeline_run_id: retryRunId,
+      pipeline_status: 'running'
+    });
     return true;
   }
 
@@ -453,6 +501,95 @@ async function recordFailedAutoKnowledgeInsertPipelineLaunch(
     artifacts: {},
     errors: [error instanceof Error ? error.message : String(error)]
   }));
+}
+
+async function listRecentKnowledgeInsertPipelines(root: string): Promise<Array<{
+  run_id: string;
+  file_name: string;
+  attachment: ChatAttachmentRef | null;
+  state: KnowledgeInsertPipelineState;
+}>> {
+  const pipelineRoot = path.join(buildProjectPaths(root).stateArtifacts, 'knowledge-insert-pipeline');
+  let entries: string[];
+
+  try {
+    entries = await readdir(pipelineRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const states = await Promise.all(entries.map(async (runId) => {
+    try {
+      const statePath = path.join(pipelineRoot, runId, 'pipeline-state.json');
+      const [state, stateStat] = await Promise.all([
+        readKnowledgeInsertPipelineArtifact<KnowledgeInsertPipelineState>(root, runId, 'pipeline-state.json'),
+        stat(statePath)
+      ]);
+      const attachment = await findChatAttachmentByKnowledgeInsertPipelineRunId(root, runId);
+      const responseState = normalizeKnowledgeInsertPipelineStateForResponse(state, stateStat.mtimeMs);
+
+      return {
+        updatedAtMs: stateStat.mtimeMs,
+        run_id: runId,
+        file_name: attachment?.file_name ?? responseState.sourceId,
+        attachment: attachment ? toChatAttachmentRef(attachment) : null,
+        state: responseState
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }));
+
+  return states
+    .filter((item): item is Exclude<(typeof states)[number], null> => item !== null)
+    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+    .slice(0, 10)
+    .map((item) => ({
+      run_id: item.run_id,
+      file_name: item.file_name,
+      attachment: item.attachment,
+      state: item.state
+    }));
+}
+
+async function readKnowledgeInsertPipelineStateForResponse(root: string, runId: string): Promise<KnowledgeInsertPipelineState> {
+  const statePath = path.join(buildProjectPaths(root).stateArtifacts, 'knowledge-insert-pipeline', runId, 'pipeline-state.json');
+  const [state, stateStat] = await Promise.all([
+    readKnowledgeInsertPipelineArtifact<KnowledgeInsertPipelineState>(root, runId, 'pipeline-state.json'),
+    stat(statePath)
+  ]);
+
+  return normalizeKnowledgeInsertPipelineStateForResponse(state, stateStat.mtimeMs);
+}
+
+function normalizeKnowledgeInsertPipelineStateForResponse(
+  state: KnowledgeInsertPipelineState,
+  stateModifiedAtMs: number
+): KnowledgeInsertPipelineState {
+  if (state.status !== 'running' || stateModifiedAtMs >= getProcessStartedAtMs()) {
+    return state;
+  }
+
+  const interruptionMessage = 'Pipeline was interrupted before this server process started. Retry to start a new run for the same attachment.';
+
+  return {
+    ...state,
+    status: 'failed',
+    errors: state.errors.includes(interruptionMessage)
+      ? [...state.errors]
+      : [...state.errors, interruptionMessage],
+    ...(state.partProgress ? { partProgress: { ...state.partProgress, running: [...state.partProgress.running] } } : {})
+  };
+}
+
+function getProcessStartedAtMs(): number {
+  return Date.now() - process.uptime() * 1000;
 }
 
 async function persistResolvedChatRunIfStillRunning(
